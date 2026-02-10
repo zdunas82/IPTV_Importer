@@ -358,9 +358,9 @@ class PoterXScreen(ConfigListScreen, Screen):
     except Exception:
         _DESKTOP_W = 720
 
-        if _DESKTOP_W >= 1280:
-            skin = """
-            <screen position="center,center" size="1100,660" title="PoterX Downloader">
+    if _DESKTOP_W >= 1280:
+        skin = """
+        <screen position="center,center" size="1100,660" title="PoterX Downloader">
             <eLabel position="0,0" size="1100,70" backgroundColor="#202020" />
             <widget name="header" position="24,14" size="1050,40" font="Regular;34" foregroundColor="#ffffff" transparent="1" />
 
@@ -370,18 +370,18 @@ class PoterXScreen(ConfigListScreen, Screen):
             <widget name="status" position="24,536" size="1052,54" font="Regular;24" halign="center" valign="center" />
 
             <eLabel position="0,600" size="1100,60" backgroundColor="#101010" />
-                <eLabel position="24,610" size="250,40" backgroundColor="#9f1313" />
-                <eLabel position="300,610" size="250,40" backgroundColor="#1f771f" />
-                <eLabel position="576,610" size="250,40" backgroundColor="#dbbf00" />
-                <eLabel position="852,610" size="224,40" backgroundColor="#003a88" />
-                <widget name="key_red" position="24,610" size="250,40" font="Regular;24" foregroundColor="#ffffff" halign="center" valign="center" zPosition="5" transparent="1" />
-                <widget name="key_green" position="300,610" size="250,40" font="Regular;24" foregroundColor="#ffffff" halign="center" valign="center" zPosition="5" transparent="1" />
-                <widget name="key_yellow" position="576,610" size="250,40" font="Regular;24" foregroundColor="#000000" halign="center" valign="center" zPosition="5" transparent="1" />
-                <widget name="key_blue" position="852,610" size="224,40" font="Regular;24" foregroundColor="#ffffff" halign="center" valign="center" zPosition="5" transparent="1" />
-            </screen>"""
-        else:
-            skin = """
-            <screen position="center,center" size="660,460" title="PoterX Downloader">
+            <eLabel position="24,610" size="250,40" backgroundColor="#9f1313" />
+            <eLabel position="300,610" size="250,40" backgroundColor="#1f771f" />
+            <eLabel position="576,610" size="250,40" backgroundColor="#dbbf00" />
+            <eLabel position="852,610" size="224,40" backgroundColor="#003a88" />
+            <widget name="key_red" position="24,610" size="250,40" font="Regular;24" foregroundColor="#ffffff" halign="center" valign="center" zPosition="5" transparent="1" />
+            <widget name="key_green" position="300,610" size="250,40" font="Regular;24" foregroundColor="#ffffff" halign="center" valign="center" zPosition="5" transparent="1" />
+            <widget name="key_yellow" position="576,610" size="250,40" font="Regular;24" foregroundColor="#000000" halign="center" valign="center" zPosition="5" transparent="1" />
+            <widget name="key_blue" position="852,610" size="224,40" font="Regular;24" foregroundColor="#ffffff" halign="center" valign="center" zPosition="5" transparent="1" />
+        </screen>"""
+    else:
+        skin = """
+        <screen position="center,center" size="660,460" title="PoterX Downloader">
             <eLabel position="0,0" size="660,54" backgroundColor="#202020" />
             <widget name="header" position="18,10" size="624,32" font="Regular;26" foregroundColor="#ffffff" transparent="1" />
 
@@ -391,15 +391,15 @@ class PoterXScreen(ConfigListScreen, Screen):
             <widget name="status" position="18,356" size="624,44" font="Regular;20" halign="center" valign="center" />
 
             <eLabel position="0,410" size="660,50" backgroundColor="#101010" />
-                <eLabel position="18,418" size="150,30" backgroundColor="#9f1313" />
-                <eLabel position="182,418" size="170,30" backgroundColor="#1f771f" />
-                <eLabel position="366,418" size="140,30" backgroundColor="#dbbf00" />
-                <eLabel position="520,418" size="122,30" backgroundColor="#003a88" />
-                <widget name="key_red" position="18,418" size="150,30" font="Regular;18" foregroundColor="#ffffff" halign="center" valign="center" zPosition="5" transparent="1" />
-                <widget name="key_green" position="182,418" size="170,30" font="Regular;18" foregroundColor="#ffffff" halign="center" valign="center" zPosition="5" transparent="1" />
-                <widget name="key_yellow" position="366,418" size="140,30" font="Regular;18" foregroundColor="#000000" halign="center" valign="center" zPosition="5" transparent="1" />
-                <widget name="key_blue" position="520,418" size="122,30" font="Regular;18" foregroundColor="#ffffff" halign="center" valign="center" zPosition="5" transparent="1" />
-            </screen>"""
+            <eLabel position="18,418" size="150,30" backgroundColor="#9f1313" />
+            <eLabel position="182,418" size="170,30" backgroundColor="#1f771f" />
+            <eLabel position="366,418" size="140,30" backgroundColor="#dbbf00" />
+            <eLabel position="520,418" size="122,30" backgroundColor="#003a88" />
+            <widget name="key_red" position="18,418" size="150,30" font="Regular;18" foregroundColor="#ffffff" halign="center" valign="center" zPosition="5" transparent="1" />
+            <widget name="key_green" position="182,418" size="170,30" font="Regular;18" foregroundColor="#ffffff" halign="center" valign="center" zPosition="5" transparent="1" />
+            <widget name="key_yellow" position="366,418" size="140,30" font="Regular;18" foregroundColor="#000000" halign="center" valign="center" zPosition="5" transparent="1" />
+            <widget name="key_blue" position="520,418" size="122,30" font="Regular;18" foregroundColor="#ffffff" halign="center" valign="center" zPosition="5" transparent="1" />
+        </screen>"""
 
     def __init__(self, session):
         Screen.__init__(self, session)
@@ -429,18 +429,18 @@ class PoterXScreen(ConfigListScreen, Screen):
         self.list.append(getConfigListEntry("Plik (reszta)", config.plugins.poterx.bzyk_extra_bouquet))
         
         ConfigListScreen.__init__(self, self.list, session=self.session)
-            header = "PoterX Downloader v%s" % VERSION
-            self.setTitle(header)  # title bar (skin-independent)
-            self["header"] = Label(header)
-            self["status"] = Label("Gotowy.")
-            self["help"] = Label("")
+        header = "PoterX Downloader v%s" % VERSION
+        self.setTitle(header)  # title bar (skin-independent)
+        self["header"] = Label(header)
+        self["status"] = Label("Gotowy.")
+        self["help"] = Label("")
 
-            # Opisy w kolorowych polach (w praktyce: najbardziej kompatybilne na image/skinach).
-            self["key_red"] = Button("CZERWONY: Wyjscie")
-            self["key_green"] = Button("ZIELONY: Pobierz")
-            self["key_yellow"] = Button("ZOLTY: Picony")
-            self["key_blue"] = Button("NIEBIESKI: Akcja")
-            self._refresh_key_labels()
+        # Opisy w kolorowych polach
+        self["key_red"] = Button("CZERWONY: Wyjscie")
+        self["key_green"] = Button("ZIELONY: Pobierz")
+        self["key_yellow"] = Button("ZOLTY: Picony")
+        self["key_blue"] = Button("NIEBIESKI: Akcja")
+        self._refresh_key_labels()
         
         self["setupActions"] = ActionMap(["SetupActions", "ColorActions"], {
             "green": self.download_direct,
@@ -451,22 +451,22 @@ class PoterXScreen(ConfigListScreen, Screen):
             "ok": self.save,
         }, -2)
         
-            self.onLayoutFinish.append(self.auto_check_update)
-            try:
-                self["config"].onSelectionChanged.append(self._on_selection_changed)
-            except Exception:
-                pass
-            self.onLayoutFinish.append(self._on_selection_changed)
+        self.onLayoutFinish.append(self.auto_check_update)
+        try:
+            self["config"].onSelectionChanged.append(self._on_selection_changed)
+        except Exception:
+            pass
+        self.onLayoutFinish.append(self._on_selection_changed)
 
-        def _refresh_key_labels(self):
-            try:
-                action = config.plugins.poterx.blue_action.value
-            except Exception:
-                action = "update"
-            if action == "bzyk":
-                self["key_blue"].setText("NIEBIESKI: Podmiana")
-            else:
-                self["key_blue"].setText("NIEBIESKI: Update")
+    def _refresh_key_labels(self):
+        try:
+            action = config.plugins.poterx.blue_action.value
+        except Exception:
+            action = "update"
+        if action == "bzyk":
+            self["key_blue"].setText("NIEBIESKI: Podmiana")
+        else:
+            self["key_blue"].setText("NIEBIESKI: Update")
 
     def _on_selection_changed(self):
         # Proste podpowiedzi - bez "slopa", zeby UI bylo czytelne na roznych image.
@@ -492,10 +492,11 @@ class PoterXScreen(ConfigListScreen, Screen):
             help_txt = "Copy: tworzy nowa liste. Inplace: podmienia w oryginalnej liscie (robi backup)."
         elif "Tytul (nowa lista)" in label or "Plik (nowa lista)" in label:
             help_txt = "Dotyczy tylko trybu Copy (nowa lista)."
-            elif "Utworz liste z reszta" in label:
-                help_txt = "Dodatkowy bukiet z pozostalymi kanalami IPTV (bez CANAL+ z mapowania)."
-            self["help"].setText(help_txt)
-            self._refresh_key_labels()
+        elif "Utworz liste z reszta" in label:
+            help_txt = "Dodatkowy bukiet z pozostalymi kanalami IPTV (bez CANAL+ z mapowania)."
+
+        self["help"].setText(help_txt)
+        self._refresh_key_labels()
 
     def _refresh_bouquet_choices(self):
         bouquets = _list_tv_bouquet_files()
