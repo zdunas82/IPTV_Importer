@@ -25,7 +25,7 @@ import re
 import tarfile
 
 # --- WERSJA WTYCZKI ---
-VERSION = "3.5.2"
+VERSION = "3.5.4"
 
 # --- ADRESY ---
 UPDATE_BASE_URL = "http://poterx.me/update"
@@ -601,6 +601,61 @@ class PoterXScreen(ConfigListScreen, Screen):
         password = config.plugins.poterx.password.value
         return "{}/get.php?username={}&password={}&type=m3u&output=ts".format(host, user, password)
 
+    def _build_dreambox_url(self):
+        host = _sanitize_host(config.plugins.poterx.host.value)
+        user = config.plugins.poterx.username.value
+        password = config.plugins.poterx.password.value
+        return "{}/playlist/{}/{}/dreambox?output=".format(host, user, password)
+
+    def _fetch_url_text(self, url, timeout=45):
+        req = Request(url)
+        req.add_header("User-Agent", "Enigma2-PoterX")
+        return to_str(urlopen(req, timeout=timeout).read())
+
+    def _parse_dreambox_playlist(self, content):
+        # Parse Enigma2 dreambox playlist into entries with original #SERVICE references from the panel.
+        # Returns list of dicts: {"name": str, "norm": str, "service": "#SERVICE ...", "description": "#DESCRIPTION ..."}
+        entries = []
+        if not content:
+            return entries
+        lines = content.splitlines()
+        i = 0
+        while i < len(lines):
+            line = (lines[i] or "").strip()
+            if not line.startswith("#SERVICE"):
+                i += 1
+                continue
+
+            service_line = line
+            desc_line = ""
+            name = ""
+            if i + 1 < len(lines):
+                nxt = (lines[i + 1] or "").strip()
+                if nxt.startswith("#DESCRIPTION"):
+                    desc_line = nxt
+                    name = nxt[len("#DESCRIPTION"):].strip()
+                    i += 2
+                else:
+                    i += 1
+            else:
+                i += 1
+
+            if not name:
+                # Fallback: last field after ":" is usually the display name.
+                try:
+                    name = service_line.split(":")[-1].strip()
+                except Exception:
+                    name = ""
+
+            norm = _normalize_name(name)
+            if not desc_line and name:
+                desc_line = "#DESCRIPTION %s" % name
+
+            if service_line and norm:
+                entries.append({"name": name, "norm": norm, "service": service_line, "description": desc_line})
+
+        return entries
+
     def _resolve_source_bouquet_path(self):
         base = "/etc/enigma2"
         manual = (config.plugins.poterx.bzyk_source_path.value or "").strip()
@@ -781,23 +836,28 @@ class PoterXScreen(ConfigListScreen, Screen):
             fn = fn + ".tv"
         return os.path.join(base, fn), fn
 
-    def _write_extra_iptv_bouquet(self, dst_path, title, entries, used_norm_names):
-        # Create a separate IPTV bouquet with the remaining channels.
-        # Hard cap to avoid huge bouquets on weaker boxes.
-        limit = 2000
+    def _write_extra_iptv_bouquet_from_dreambox(self, dst_path, title, entries, used_norm_names):
+        # Create a separate IPTV bouquet with the remaining channels, using service references
+        # fetched from the Xtream UI panel (dreambox playlist), like in older versions.
+        limit = 2000  # hard cap
 
         out = ["#NAME %s" % ((title or "").strip() or "IPTV - Pozostale")]
         count = 0
         for e in entries:
             if e.get("norm") in used_norm_names:
                 continue
-            url = e.get("url") or ""
-            name = e.get("name") or ""
-            if not url or not name:
+
+            srv = (e.get("service") or "").strip()
+            desc = (e.get("description") or "").strip()
+            if not srv:
                 continue
-            enc = _encode_url_minimal(url)
-            out.append("#SERVICE 4097:0:1:0:0:0:0:0:0:0:%s:%s" % (enc, name))
-            out.append("#DESCRIPTION %s" % name)
+
+            # Prefer default player (service type 1) while keeping the original reference intact.
+            srv = re.sub(r"^#SERVICE\\s+4097:", "#SERVICE 1:", srv)
+
+            out.append(srv)
+            if desc:
+                out.append(desc)
             count += 1
             if count >= limit:
                 break
@@ -832,9 +892,7 @@ class PoterXScreen(ConfigListScreen, Screen):
         url = self._build_m3u_url()
         self["status"].setText("Pobieranie M3U...")
         try:
-            req = Request(url)
-            req.add_header("User-Agent", "Enigma2-PoterX")
-            content = to_str(urlopen(req, timeout=45).read())
+            content = self._fetch_url_text(url, timeout=45)
         except Exception as e:
             self.session.open(MessageBox, "Blad pobierania M3U: %s" % str(e), MessageBox.TYPE_ERROR)
             self["status"].setText("Blad M3U.")
@@ -882,7 +940,17 @@ class PoterXScreen(ConfigListScreen, Screen):
             ])
             try:
                 extra_title = (config.plugins.poterx.bzyk_extra_title.value or "").strip() or "IPTV - Pozostale"
-                extra_count = self._write_extra_iptv_bouquet(extra_path, extra_title, m3u_entries, used)
+                # Prefer panel references (dreambox playlist). Fallback to parsed M3U if needed.
+                db_content = ""
+                try:
+                    db_content = self._fetch_url_text(self._build_dreambox_url(), timeout=45)
+                except Exception:
+                    db_content = ""
+                db_entries = self._parse_dreambox_playlist(db_content) if db_content else []
+                if db_entries:
+                    extra_count = self._write_extra_iptv_bouquet_from_dreambox(extra_path, extra_title, db_entries, used)
+                else:
+                    extra_count = 0
             except Exception:
                 extra_count = 0
 
