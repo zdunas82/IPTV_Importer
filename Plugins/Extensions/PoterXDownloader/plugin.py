@@ -24,8 +24,14 @@ from datetime import datetime
 import re
 import tarfile
 
+# Virtual keyboard (availability depends on image)
+try:
+    from Screens.VirtualKeyBoard import VirtualKeyBoard
+except Exception:
+    VirtualKeyBoard = None
+
 # --- WERSJA WTYCZKI ---
-VERSION = "3.5.4"
+VERSION = "3.5.5"
 
 # --- ADRESY ---
 UPDATE_BASE_URL = "http://poterx.me/update"
@@ -187,7 +193,11 @@ def _auto_detect_source_bouquet_path():
 config.plugins.poterx = ConfigSubsection()
 config.plugins.poterx.host = ConfigText(default="http://potertv.ddns.me:80", fixed_size=False)
 config.plugins.poterx.username = ConfigText(default="", fixed_size=False)
-config.plugins.poterx.password = ConfigText(default="", fixed_size=False)
+try:
+    from Components.config import ConfigPassword
+    config.plugins.poterx.password = ConfigPassword(default="", fixed_size=False)
+except Exception:
+    config.plugins.poterx.password = ConfigText(default="", fixed_size=False)
 config.plugins.poterx.auto_update = ConfigYesNo(default=False)
 config.plugins.poterx.auto_update_time = ConfigClock(default=14400) # 04:00
 
@@ -448,7 +458,7 @@ class PoterXScreen(ConfigListScreen, Screen):
             "cancel": self.cancel,
             "blue": self.blue_action,
             "yellow": self.ask_picons,
-            "ok": self.save,
+            "ok": self.ok_pressed,
         }, -2)
         
         self.onLayoutFinish.append(self.auto_check_update)
@@ -468,6 +478,49 @@ class PoterXScreen(ConfigListScreen, Screen):
         else:
             self["key_blue"].setText("NIEBIESKI: Update")
 
+    def ok_pressed(self):
+        cur = None
+        try:
+            cur = self["config"].getCurrent()
+        except Exception:
+            cur = None
+
+        if not cur or len(cur) < 2:
+            return
+
+        label, cfg = cur[0], cur[1]
+
+        # Full-screen virtual keyboard for text inputs.
+        if VirtualKeyBoard is not None and hasattr(cfg, "value"):
+            try:
+                val = cfg.value
+            except Exception:
+                val = None
+            if isinstance(val, str):
+                title = "Wpisz: %s" % (label or "")
+                self.session.openWithCallback(lambda txt: self._vk_cb(cfg, txt), VirtualKeyBoard, title=title, text=val)
+                return
+
+        # For other config types, OK cycles forward.
+        try:
+            self.keyRight()
+        except Exception:
+            pass
+
+    def _vk_cb(self, cfg, txt):
+        if txt is None:
+            return
+        try:
+            cfg.value = txt
+            cfg.save()
+        except Exception:
+            pass
+        try:
+            self["config"].invalidateCurrent()
+        except Exception:
+            pass
+        self._on_selection_changed()
+
     def _on_selection_changed(self):
         # Proste podpowiedzi - bez "slopa", zeby UI bylo czytelne na roznych image.
         try:
@@ -478,7 +531,7 @@ class PoterXScreen(ConfigListScreen, Screen):
 
         help_txt = ""
         if "Uzytkownik" in label or "Haslo" in label:
-            help_txt = "Dane do logowania IPTV (Xtream)."
+            help_txt = "Dane do logowania IPTV. OK = klawiatura ekranowa."
         elif "Auto aktualizacja" in label or "Godzina auto" in label:
             help_txt = "Automatyczne odswiezanie listy i restart GUI o wybranej godzinie."
         elif "Niebieski przycisk" in label:
