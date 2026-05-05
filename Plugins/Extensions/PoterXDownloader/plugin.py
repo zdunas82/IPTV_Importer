@@ -3993,49 +3993,166 @@ class PoterXScreen(ConfigListScreen, Screen):
             "Log: /tmp/poterx_epg_errors.txt" % "; ".join(_errors[:3])
         )
 
+    # ══════════════════════════════════════════════════════════════════════════
+    #  POBIERZ IPTV – zielony przycisk
+    #  Pobiera WSZYSTKIE kanaly LIVE (bez VOD) z get_live_streams API,
+    #  buduje bukiet "IPTV | PoterX" w tle z widocznym postepem.
+    # ══════════════════════════════════════════════════════════════════════════
+
     def download_direct(self):
         for x in self["config"].list:
             x[1].save()
         config.save()
 
-        # ── Krok 1: Pobierz playlistę ────────────────────────────────────────
-        self["status"].setText("Krok 1/3: Pobieranie playlisty IPTV...")
-        if not perform_playlist_update(silent=False, session=self.session):
-            self["status"].setText("Blad pobierania playlisty.")
+        user     = config.plugins.poterx.username.value
+        password = config.plugins.poterx.password.value
+        if not user or not password:
+            self.session.open(MessageBox, "Brak danych logowania (uzytkownik/haslo).", MessageBox.TYPE_ERROR)
             return
 
-        # ── Krok 2: Generuj pliki EPG ────────────────────────────────────────
-        self["status"].setText("Krok 2/3: Generowanie EPG...")
-        epg_ok, epg_msg = self._build_epg_simple()
+        if getattr(self, "_dl_running", False):
+            self["status"].setText("Pobieranie jest juz uruchomione...")
+            return
 
-        # ── Krok 3: EPGImport – zainstalowany? ───────────────────────────────
-        epgimport_dir = "/usr/lib/enigma2/python/Plugins/Extensions/EPGImport"
-        epgimport_installed = os.path.isdir(epgimport_dir)
+        self._dl_running = True
+        self._dl_result  = None
+        self._dl_status  = "Inicjalizacja..."
 
-        if epg_ok and not epgimport_installed:
-            # Zapytaj czy chce zainstalować EPGImport
-            self._pending_epg_msg = epg_msg
-            self.session.openWithCallback(
-                self._on_ask_install_epgimport,
-                MessageBox,
-                "EPGImport nie jest zainstalowany.\n\n"
-                "Pliki EPG zostaly juz zapisane do /etc/epgimport/\n"
-                "i beda gotowe po instalacji.\n\n"
-                "Czy chcesz zainstalowac EPGImport teraz?\n"
-                "(wymaga polaczenia z internetem)",
-                MessageBox.TYPE_YESNO,
-                default=True,
+        host = _sanitize_host(config.plugins.poterx.host.value)
+        self["status"].setText("Pobieranie IPTV: uruchamianie...")
+
+        t = threading.Thread(target=self._dl_iptv_thread, args=(host, user, password))
+        t.daemon = True
+        t.start()
+
+        self._dl_timer = eTimer()
+        self._dl_timer.callback.append(self._dl_poll_check)
+        self._dl_timer.start(500, False)
+
+    def _dl_iptv_thread(self, host, user, password):
+        """
+        Watek tla:
+          1. Pobiera get_live_streams (tylko TV, zero VOD)
+          2. Buduje userbouquet.canal_poterx.tv z nazwa 'IPTV | PoterX'
+        Bez zadnych wywolan Enigma2 API – wszystko w glownym watku.
+        """
+        try:
+            # ── Krok 1: get_live_streams ─────────────────────────────────────
+            self._dl_status = "Pobieranie listy kanalow LIVE z panelu..."
+            url = "%s/player_api.php?username=%s&password=%s&action=get_live_streams" % (
+                host, user, password
             )
-            return  # dalej w callbackach
+            req = Request(url)
+            req.add_header("User-Agent", "Enigma2-PoterX")
+            raw     = to_str(urlopen(req, timeout=60).read())
+            streams = json.loads(raw)
 
-        # EPGImport zainstalowany – uruchom automatycznie
-        epg_trigger_info = ""
-        if epg_ok and epgimport_installed:
-            self["status"].setText("Krok 3/3: Uruchamianie EPGImport...")
-            trig_ok, trig_msg = self._trigger_epgimport()
-            epg_trigger_info = "\n\n>> %s" % trig_msg
+            if not isinstance(streams, list) or not streams:
+                self._dl_result = (False, "API nie zwrocilo listy kanalow LIVE.")
+                return
 
-        self._finish_download_direct(epg_ok, epg_msg, epg_trigger_info)
+            total = len(streams)
+            self._dl_status = "Budowanie bukietu: %d kanalow..." % total
+
+            # ── Krok 2: buduj wpisy bouquet ──────────────────────────────────
+            out = ["#NAME IPTV | PoterX"]
+            added = 0
+            for i, stream in enumerate(streams):
+                sid = str(stream.get("stream_id") or "").strip()
+                if not sid:
+                    continue
+                name = (stream.get("name") or "").strip() or ("Kanal %s" % sid)
+                ext  = ((stream.get("container_extension") or "").strip().lower()) or "ts"
+
+                stream_url = "%s/live/%s/%s/%s.%s" % (host, user, password, sid, ext)
+                enc        = _encode_url_minimal(stream_url)
+                safe_name  = self._safe_service_name(name)
+
+                # Stabilna pseudo-referencja oparta o stream_id (unikalna per kanal)
+                core = self._pseudo_service_core(sid, stream.get("category_id"), name)
+
+                out.append("#SERVICE %s:%s:%s" % (core, enc, safe_name))
+                out.append("#DESCRIPTION %s" % safe_name)
+                added += 1
+
+                if (i % 50) == 0:
+                    self._dl_status = "Budowanie bukietu: %d / %d kanalow..." % (i + 1, total)
+
+            if added == 0:
+                self._dl_result = (False, "Brak kanalow do zapisania.")
+                return
+
+            # ── Krok 3: zapisz plik bouquet ──────────────────────────────────
+            bouquet_fn   = "userbouquet.canal_poterx.tv"
+            bouquet_path = "/etc/enigma2/" + bouquet_fn
+
+            with open(bouquet_path, "w") as f:
+                f.write("\n".join(out) + "\n")
+
+            self._dl_result = (True, added, bouquet_fn)
+
+        except Exception as ex:
+            self._dl_result = (False, "Blad pobierania: %s" % str(ex))
+
+    def _dl_poll_check(self):
+        """
+        eTimer callback – glowny watek.
+        Aktualizuje status; po zakonczeniu watku:
+          * dodaje bouquet do bouquets.tv
+          * przeladowuje listy kanalow
+          * generuje pliki EPG i odpala EPGImport
+        """
+        if self._dl_result is None:
+            self["status"].setText(getattr(self, "_dl_status", "Pobieranie..."))
+            return
+
+        self._dl_timer.stop()
+        self._dl_running = False
+
+        ok = self._dl_result[0]
+
+        if not ok:
+            self["status"].setText("Blad pobierania IPTV.")
+            self.session.open(MessageBox, self._dl_result[1], MessageBox.TYPE_ERROR)
+            return
+
+        count, bouquet_fn = self._dl_result[1], self._dl_result[2]
+
+        # ── Dodaj bouquet na 1. miejscu bouquets.tv ───────────────────────────
+        self["status"].setText("Aktualizacja bouquets.tv...")
+        self._ensure_bouquet_link_first(bouquet_fn)
+
+        # ── Przeladuj listy kanalow ───────────────────────────────────────────
+        self["status"].setText("Przeladowanie list kanalow...")
+        try:
+            eDVBDB.getInstance().reloadBouquets()
+            eDVBDB.getInstance().reloadServicelist()
+        except Exception:
+            pass
+
+        # ── Generuj pliki EPG i odpala EPGImport ─────────────────────────────
+        self["status"].setText("Generowanie EPG...")
+        epg_ok  = False
+        epg_msg = ""
+        try:
+            epg_ok, epg_msg = self._build_epg_simple()
+            if epg_ok:
+                self._trigger_epgimport()
+        except Exception:
+            epg_msg = "Blad generowania EPG."
+
+        epg_line = ("\n\n%s" % epg_msg) if epg_msg else ""
+        self["status"].setText("Gotowy – %d kanalow LIVE." % count)
+        self.session.openWithCallback(
+            self.restart_gui,
+            MessageBox,
+            "Bukiet IPTV | PoterX gotowy!\n\n"
+            "Kanalow LIVE (bez VOD): %d\n"
+            "Plik: %s"
+            "%s\n\n"
+            "Zrestartowac GUI?" % (count, bouquet_fn, epg_line),
+            MessageBox.TYPE_YESNO,
+        )
 
     def _on_ask_install_epgimport(self, confirmed):
         """Callback po pytaniu o instalację EPGImport."""
