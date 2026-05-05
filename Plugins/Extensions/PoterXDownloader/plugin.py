@@ -864,6 +864,15 @@ class PoterXScreen(ConfigListScreen, Screen):
 
         </screen>"""
 
+    # Etykiety pozycji-akcji (musza pasowac do sprawdzen w ok_pressed)
+    _ACT_IPTV    = " [OK]  Pobierz kanaly LIVE  ->  IPTV | PoterX"
+    _ACT_EPG     = " [OK]  Importuj EPG bezposrednio"
+    _ACT_CANAL   = " [OK]  Podmien kanaly Canal+  (Bzyk83)"
+    _ACT_HOTBIRD = " [OK]  Pobierz moja liste + Podmien Canal+"
+    _ACT_PICONS  = " [OK]  Pobierz picony"
+    _ACT_UPDATE  = " [OK]  Sprawdz aktualizacje wtyczki"
+    _ACT_DIAG    = " [OK]  Diagnostyka EPG  (szczegolowy raport)"
+
     def __init__(self, session):
         Screen.__init__(self, session)
         self.session = session
@@ -871,66 +880,80 @@ class PoterXScreen(ConfigListScreen, Screen):
 
         self._refresh_bouquet_choices()
 
-        # ── Sekcja 1: Konto ─────────────────────────────────────────────────
-        self.list.append(getConfigListEntry(" >> KONTO IPTV", ConfigNothing()))
-        self.list.append(getConfigListEntry("    Uzytkownik", config.plugins.poterx.username))
-        self.list.append(getConfigListEntry("    Haslo", config.plugins.poterx.password))
-        self.list.append(getConfigListEntry("    Auto aktualizacja", config.plugins.poterx.auto_update))
-        self.list.append(getConfigListEntry("    Godzina auto", config.plugins.poterx.auto_update_time))
-        self.list.append(getConfigListEntry("    Akcja niebieskiego", config.plugins.poterx.blue_action))
+        # ── Sekcja AKCJE ─────────────────────────────────────────────────────
+        self.list.append(getConfigListEntry(
+            " ════════  AKCJE  ════════════════════════════", ConfigNothing()))
+        self.list.append(getConfigListEntry(self._ACT_IPTV,    ConfigNothing()))
+        self.list.append(getConfigListEntry(self._ACT_EPG,     ConfigNothing()))
+        self.list.append(getConfigListEntry(self._ACT_CANAL,   ConfigNothing()))
+        self.list.append(getConfigListEntry(self._ACT_HOTBIRD, ConfigNothing()))
+        self.list.append(getConfigListEntry(self._ACT_PICONS,  ConfigNothing()))
+        self.list.append(getConfigListEntry(self._ACT_UPDATE,  ConfigNothing()))
+        self.list.append(getConfigListEntry(self._ACT_DIAG,    ConfigNothing()))
 
-        # ── Sekcja 2: Podmiana kanałów ───────────────────────────────────────
-        self.list.append(getConfigListEntry(" >> PODMIANA KANALOW", ConfigNothing()))
-        self.list.append(getConfigListEntry("    Zrodlo (lista)", config.plugins.poterx.bzyk_source_bouquet))
-        self.list.append(getConfigListEntry("    Zrodlo (sciezka recznie)", config.plugins.poterx.bzyk_source_path))
-        self.list.append(getConfigListEntry("    Tryb zapisu", config.plugins.poterx.bzyk_target_mode))
-        self.list.append(getConfigListEntry("    Tytul nowej listy", config.plugins.poterx.bzyk_custom_title))
-        self.list.append(getConfigListEntry("    Plik nowej listy", config.plugins.poterx.bzyk_custom_bouquet))
-        self.list.append(getConfigListEntry("    Wstaw na 1 miejscu", config.plugins.poterx.bzyk_insert_first))
+        # ── Sekcja KONTO IPTV ────────────────────────────────────────────────
+        self.list.append(getConfigListEntry(
+            " ════════  KONTO IPTV  ══════════════════════", ConfigNothing()))
+        self.list.append(getConfigListEntry("    Uzytkownik",          config.plugins.poterx.username))
+        self.list.append(getConfigListEntry("    Haslo",               config.plugins.poterx.password))
+        self.list.append(getConfigListEntry("    Auto aktualizacja",   config.plugins.poterx.auto_update))
+        self.list.append(getConfigListEntry("    Godzina auto",        config.plugins.poterx.auto_update_time))
 
-        # ── Sekcja 3: Dodatkowa lista ────────────────────────────────────────
-        self.list.append(getConfigListEntry(" >> DODATKOWA LISTA IPTV", ConfigNothing()))
-        self.list.append(getConfigListEntry("    Utworz liste z reszta", config.plugins.poterx.bzyk_extra_enable))
-        self.list.append(getConfigListEntry("    Tytul listy", config.plugins.poterx.bzyk_extra_title))
-        self.list.append(getConfigListEntry("    Plik listy", config.plugins.poterx.bzyk_extra_bouquet))
+        # ── Sekcja PODMIANA KANALOW ──────────────────────────────────────────
+        self.list.append(getConfigListEntry(
+            " ════════  PODMIANA KANALOW (Bzyk83)  ═══════", ConfigNothing()))
+        self.list.append(getConfigListEntry("    Zrodlo (lista)",      config.plugins.poterx.bzyk_source_bouquet))
+        self.list.append(getConfigListEntry("    Zrodlo (sciezka)",    config.plugins.poterx.bzyk_source_path))
+        self.list.append(getConfigListEntry("    Tryb zapisu",         config.plugins.poterx.bzyk_target_mode))
+        self.list.append(getConfigListEntry("    Tytul nowej listy",   config.plugins.poterx.bzyk_custom_title))
+        self.list.append(getConfigListEntry("    Plik nowej listy",    config.plugins.poterx.bzyk_custom_bouquet))
+        self.list.append(getConfigListEntry("    Wstaw na 1 miejscu",  config.plugins.poterx.bzyk_insert_first))
 
-        # ── Sekcja 3b: Moja lista z serwera ─────────────────────────────────
-        self.list.append(getConfigListEntry(" >> MOJA LISTA Z SERWERA", ConfigNothing()))
-        self.list.append(getConfigListEntry("    Wstaw na 1 miejscu", config.plugins.poterx.hotbird_insert_first))
+        # ── Sekcja DODATKOWA LISTA ───────────────────────────────────────────
+        self.list.append(getConfigListEntry(
+            " ════════  DODATKOWA LISTA IPTV  ════════════", ConfigNothing()))
+        self.list.append(getConfigListEntry("    Lista z reszta kanalow", config.plugins.poterx.bzyk_extra_enable))
+        self.list.append(getConfigListEntry("    Tytul listy",          config.plugins.poterx.bzyk_extra_title))
+        self.list.append(getConfigListEntry("    Plik listy",           config.plugins.poterx.bzyk_extra_bouquet))
 
-        # ── Sekcja 4: Picony ─────────────────────────────────────────────────
-        self.list.append(getConfigListEntry(" >> PICONY", ConfigNothing()))
-        self.list.append(getConfigListEntry("    Zrodlo piconow", config.plugins.poterx.picon_source))
-        self.list.append(getConfigListEntry("    Rozdzielczosc", config.plugins.poterx.picon_size))
-        self.list.append(getConfigListEntry("    Katalog docelowy", config.plugins.poterx.picon_path))
-        
+        # ── Sekcja MOJA LISTA Z SERWERA ──────────────────────────────────────
+        self.list.append(getConfigListEntry(
+            " ════════  MOJA LISTA Z SERWERA  ════════════", ConfigNothing()))
+        self.list.append(getConfigListEntry("    Wstaw na 1 miejscu",  config.plugins.poterx.hotbird_insert_first))
+
+        # ── Sekcja PICONY ────────────────────────────────────────────────────
+        self.list.append(getConfigListEntry(
+            " ════════  PICONY  ══════════════════════════", ConfigNothing()))
+        self.list.append(getConfigListEntry("    Zrodlo piconow",      config.plugins.poterx.picon_source))
+        self.list.append(getConfigListEntry("    Rozdzielczosc",       config.plugins.poterx.picon_size))
+        self.list.append(getConfigListEntry("    Katalog docelowy",    config.plugins.poterx.picon_path))
+
         ConfigListScreen.__init__(self, self.list, session=self.session)
-        title_full = "PoterX Downloader v%s" % VERSION
-        self.setTitle(title_full)          # pasek tytułu okna (niezależny od skinu)
+        self.setTitle("PoterX Downloader v%s" % VERSION)
         self["header"] = Label("PoterX Downloader")
         try:
             self["ver_label"] = Label("v%s" % VERSION)
         except Exception:
             pass
         self["status"] = Label("Inicjalizacja...")
-        self["help"] = Label("Klawisz 0 = Diagnostyka EPG")
+        self["help"]   = Label("Strzalki = nawigacja   OK = wykonaj / edytuj   0 = Diagnostyka EPG")
 
         self["key_red"]    = Button("Wyjscie")
         self["key_green"]  = Button("Pobierz IPTV")
-        self["key_yellow"] = Button("Pobierz picony")
-        self["key_blue"]   = Button("Podmien kanaly")
-        self._refresh_key_labels()
-        
-        self["setupActions"] = ActionMap(["SetupActions", "ColorActions", "NumberActions"], {
-            "green": self.download_direct,
-            "red": self.cancel,
-            "cancel": self.cancel,
-            "blue": self.blue_action,
-            "yellow": self.ask_picons,
-            "ok": self.ok_pressed,
-            "0": self.run_epg_diagnostic,
-        }, -2)
-        
+        self["key_yellow"] = Button("Picony")
+        self["key_blue"]   = Button("Importuj EPG")
+
+        self["setupActions"] = ActionMap(
+            ["SetupActions", "ColorActions", "NumberActions"], {
+                "green":  self.download_direct,
+                "red":    self.cancel,
+                "cancel": self.cancel,
+                "blue":   self.run_epg_import_threaded,
+                "yellow": self.ask_picons,
+                "ok":     self.ok_pressed,
+                "0":      self.run_epg_diagnostic,
+            }, -2)
+
         self.onLayoutFinish.append(self.auto_check_update)
         try:
             self["config"].onSelectionChanged.append(self._on_selection_changed)
@@ -939,15 +962,19 @@ class PoterXScreen(ConfigListScreen, Screen):
         self.onLayoutFinish.append(self._on_selection_changed)
 
     def _refresh_key_labels(self):
-        action = config.plugins.poterx.blue_action.value
-        if action == "bzyk":
-            self["key_blue"].setText("Podmien kanaly")
-        elif action == "hotbird":
-            self["key_blue"].setText("Pobierz+Canal+")
-        elif action == "epg":
-            self["key_blue"].setText("Importuj EPG")
-        else:
-            self["key_blue"].setText("Sprawdz aktualizacje")
+        # Przyciski sa teraz stale – nie zaleza od konfiguracji
+        pass
+
+    # Mapa: fragment etykiety → metoda do wywołania po OK
+    _ACTION_DISPATCH = [
+        ("Pobierz kanaly LIVE",        "download_direct"),
+        ("Importuj EPG bezposrednio",   "run_epg_import_threaded"),
+        ("Podmien kanaly Canal+",       "run_bzyk_replace"),
+        ("Pobierz moja liste",         "ask_download_hotbird"),
+        ("Pobierz picony",             "ask_picons"),
+        ("Sprawdz aktualizacje",       "manual_check_update"),
+        ("Diagnostyka EPG",            "run_epg_diagnostic"),
+    ]
 
     def ok_pressed(self):
         cur = None
@@ -960,19 +987,32 @@ class PoterXScreen(ConfigListScreen, Screen):
             return
 
         label, cfg = cur[0], cur[1]
+        label_strip = label.strip()
 
-        # Full-screen virtual keyboard for text inputs.
+        # ── Pozycje akcji: wywolaj odpowiednia metode ─────────────────────────
+        for keyword, method_name in self._ACTION_DISPATCH:
+            if keyword in label_strip:
+                try:
+                    getattr(self, method_name)()
+                except Exception:
+                    pass
+                return
+
+        # ── Pozycje konfiguracyjne: klawiatura ekranowa lub cykl ─────────────
         if VirtualKeyBoard is not None and hasattr(cfg, "value"):
             try:
                 val = cfg.value
             except Exception:
                 val = None
             if isinstance(val, str):
-                title = "Wpisz: %s" % (label or "")
-                self.session.openWithCallback(lambda txt: self._vk_cb(cfg, txt), VirtualKeyBoard, title=title, text=val)
+                title = "Wpisz: %s" % (label_strip or "")
+                self.session.openWithCallback(
+                    lambda txt: self._vk_cb(cfg, txt),
+                    VirtualKeyBoard, title=title, text=val,
+                )
                 return
 
-        # For other config types, OK cycles forward.
+        # Dla innych typow (YesNo, Selection, Clock) – OK przechodzi w prawo
         try:
             self.keyRight()
         except Exception:
@@ -993,44 +1033,56 @@ class PoterXScreen(ConfigListScreen, Screen):
         self._on_selection_changed()
 
     def _on_selection_changed(self):
-        # Etykiety musza pasowac DOKLADNIE do nazw w self.list (ASCII, bez polskich znakow).
         try:
             cur = self["config"].getCurrent()
             label = (cur[0] or "").strip() if cur else ""
         except Exception:
             label = ""
 
-        help_txt = ""
-        if "Uzytkownik" in label or "Haslo" in label:
-            help_txt = "Dane do logowania IPTV. OK = klawiatura ekranowa."
-        elif "Auto aktualizacja" in label or "Godzina auto" in label:
-            help_txt = "Automatyczne odswiezanie listy i restart GUI o wybranej godzinie."
-        elif "Akcja niebieskiego" in label:
-            if config.plugins.poterx.blue_action.value == "bzyk":
-                help_txt = "Niebieski: podmienia CANAL+ w liscie Bzyk83."
-            else:
-                help_txt = "Niebieski: sprawdza aktualizacje wtyczki."
-        elif "Zrodlo (lista)" in label or "Zrodlo (sciezka" in label:
-            help_txt = "Wybierz bukiet zrodlowy. Jesli lista pusta, wpisz recznie sciezke z /etc/enigma2."
+        # ── Podpowiedzi dla pozycji AKCJI ────────────────────────────────────
+        if "Pobierz kanaly LIVE" in label:
+            help_txt = "Pobiera WSZYSTKIE kanaly TV (bez VOD) i tworzy buket 'IPTV | PoterX'. Zielony = skrot."
+        elif "Importuj EPG bezposrednio" in label:
+            help_txt = "Pobiera i wstrzykuje EPG do Enigma2. Postep w MB widoczny na dole. Niebieski = skrot."
+        elif "Podmien kanaly Canal+" in label:
+            help_txt = "Zastepuje satelitarne Canal+ strumieniami IPTV w wybranym bukiecie (Bzyk83)."
+        elif "Pobierz moja liste + Podmien" in label:
+            help_txt = "Pobiera liste kanalow z serwera PoterX i podmienia Canal+ na IPTV."
+        elif "Pobierz picony" in label:
+            help_txt = "Pobiera logo kanalow z panelu lub serwera PoterX. Zolty = skrot."
+        elif "Sprawdz aktualizacje" in label:
+            help_txt = "Sprawdza czy dostepna jest nowsza wersja wtyczki PoterX Downloader."
+        elif "Diagnostyka EPG" in label:
+            help_txt = "Pelny raport: login, pliki EPG, test XMLTV, matchowanie kanalow, eEPGCache. Klawisz 0."
+        # ── Podpowiedzi dla pozycji KONFIGURACYJNYCH ─────────────────────────
+        elif "Uzytkownik" in label or "Haslo" in label:
+            help_txt = "Dane logowania do panelu IPTV (XUI.ONE / Xtream Codes). OK = klawiatura."
+        elif "Auto aktualizacja" in label:
+            help_txt = "Automatycznie pobiera liste kanalow o wybranej godzinie i restartuje GUI."
+        elif "Godzina auto" in label:
+            help_txt = "O tej godzinie uruchomi sie automatyczna aktualizacja (jesli wlaczona)."
+        elif "Zrodlo (lista)" in label or "Zrodlo (sciezka)" in label:
+            help_txt = "Bukiet zrodlowy z kanalami Canal+. Auto = wykrywa automatycznie (lista Bzyk83)."
         elif "Tryb zapisu" in label:
-            help_txt = "Copy: tworzy nowa liste (bezpieczne). Inplace: podmienia oryginalna (robi backup)."
+            help_txt = "Copy = tworzy nowy buket (bezpieczne, oryginal nienaruszony). Inplace = podmienia oryginal."
         elif "Tytul nowej listy" in label or "Plik nowej listy" in label:
-            help_txt = "Dotyczy tylko trybu Copy (nowa lista)."
+            help_txt = "Nazwa i plik docelowy nowego buketu (tylko w trybie Copy)."
         elif "Wstaw na 1 miejscu" in label:
-            help_txt = "Tak: nowa lista pojawi sie jako pierwsza na liscie buketow."
-        elif "Utworz liste z reszta" in label:
-            help_txt = "Dodatkowy buket z pozostalymi kanalami IPTV (poza podmienionymi)."
+            help_txt = "Yes = nowy buket pojawi sie jako PIERWSZA lista w menu kanalow."
+        elif "Lista z reszta kanalow" in label:
+            help_txt = "Tworzy dodatkowy buket ze wszystkimi kanalami IPTV, ktore nie sa Canal+."
         elif "Tytul listy" in label or "Plik listy" in label:
-            help_txt = "Nazwa i plik dodatkowego buketu z reszta kanalow IPTV."
+            help_txt = "Nazwa i plik dodatkowego buketu z pozostalymi kanalami IPTV."
         elif "Zrodlo piconow" in label:
-            help_txt = "Panel: pobiera loga z API (stream_icon). Serwer: gotowa paczka tar.gz z PoterX."
+            help_txt = "Panel = pobiera logo z API (stream_icon). Serwer = gotowa paczka tar.gz."
         elif "Rozdzielczosc" in label:
-            help_txt = "Rozmiar piconow. 220x132 = standard (xpicons). 400x240 = duze (zzzpicons)."
+            help_txt = "Rozmiar piconow. 220x132 = standard. 400x240 = duze."
         elif "Katalog docelowy" in label:
-            help_txt = "Gdzie zapisac picony. Domyslnie /usr/share/enigma2/picon."
+            help_txt = "Katalog zapisu piconow. Domyslnie /usr/share/enigma2/picon."
+        else:
+            help_txt = "Strzalki = nawigacja   OK = wykonaj / edytuj   0 = Diagnostyka EPG"
 
         self["help"].setText(help_txt)
-        self._refresh_key_labels()
 
     def _refresh_bouquet_choices(self):
         bouquets = _list_tv_bouquet_files()
@@ -1126,15 +1178,8 @@ class PoterXScreen(ConfigListScreen, Screen):
             self.session.open(MessageBox, "Blad sprawdzania aktualizacji: " + str(e), MessageBox.TYPE_ERROR)
 
     def blue_action(self):
-        action = config.plugins.poterx.blue_action.value
-        if action == "bzyk":
-            self.run_bzyk_replace()
-        elif action == "hotbird":
-            self.ask_download_hotbird()
-        elif action == "epg":
-            self.run_epg_import_threaded()
-        else:
-            self.manual_check_update()
+        # Niebieski zawsze = Import EPG (skrot od akcji w menu)
+        self.run_epg_import_threaded()
 
     # ══════════════════════════════════════════════════════════════════════════
     #  BEZPOSREDNI IMPORT EPG – niebieski przycisk (akcja "epg")
