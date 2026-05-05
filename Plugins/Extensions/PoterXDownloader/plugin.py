@@ -28,6 +28,9 @@ import io
 import hashlib
 import subprocess
 import threading
+import difflib
+import gzip
+import xml.etree.cElementTree as ET
 
 # Virtual keyboard (availability depends on image)
 try:
@@ -658,6 +661,340 @@ def _direct_epg_import_standalone():
 
 epg_refresh_instance = EPGAutoRefresh()
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  EPG AUTO-MAPPER – logika przeniesiona z IPTV_EPG_Manager
+# ══════════════════════════════════════════════════════════════════════════════
+
+_EPG_NOISE_WORDS = set([
+    "HD", "FHD", "FULLHD", "UHD", "4K", "HEVC", "H265", "H264", "AVC",
+    "SD", "PL", "TV", "LIVE", "CHANNEL", "CHANNELS", "THE", "POLSKA",
+    "POLISH", "INTERNATIONAL", "INTL", "INT", "PREMIUM", "EXTRA", "PLUS",
+    "ONE", "TWO", "THREE", "FEED", "STREAM", "WEST", "EAST", "EUROPE",
+])
+
+_EPG_MANUAL_ALIASES = {
+    "CANALPLUS":    ["CANAL PLUS", "C+", "CANAL+", "CANALPLUS"],
+    "TVP1":         ["TVP 1"],
+    "TVP2":         ["TVP 2"],
+    "TVP3":         ["TVP 3", "TVP REGIONALNA"],
+    "TVP4":         ["TVP 4"],
+    "TVN":          ["TVN"],
+    "TVN24":        ["TVN 24"],
+    "TVN7":         ["TVN 7"],
+    "POLSAT":       ["POLSAT"],
+    "POLSATNEWS":   ["POLSAT NEWS"],
+    "POLSAT2":      ["POLSAT 2"],
+    "EUROSPORT1":   ["EUROSPORT 1"],
+    "EUROSPORT2":   ["EUROSPORT 2"],
+    "SPORTKLUB":    ["SPORT KLUB"],
+    "ELEVEN1":      ["ELEVEN SPORTS 1", "ELEVEN SPORTS1"],
+    "ELEVEN2":      ["ELEVEN SPORTS 2", "ELEVEN SPORTS2"],
+}
+
+_EPG_POLISH_MAP = {
+    u"Ą": "A", u"Ć": "C", u"Ę": "E", u"Ł": "L",
+    u"Ń": "N", u"Ó": "O", u"Ś": "S", u"Ż": "Z",
+    u"Ź": "Z",
+    u"ą": "a", u"ć": "c", u"ę": "e", u"ł": "l",
+    u"ń": "n", u"ó": "o", u"ś": "s", u"ż": "z",
+    u"ź": "z",
+}
+
+def _epg_replace_polish(text):
+    out = []
+    for ch in (text or ""):
+        out.append(_EPG_POLISH_MAP.get(ch, ch))
+    return "".join(out)
+
+def _epg_simplify_name(text):
+    text = _epg_replace_polish((text or "").upper())
+    # Expand aliases like "C+" -> "CANAL PLUS"
+    for canonical, aliases in _EPG_MANUAL_ALIASES.items():
+        for alias in aliases:
+            if text == alias or text.startswith(alias + " ") or text.endswith(" " + alias):
+                text = text.replace(alias, canonical)
+    # Remove bracketed content
+    text = re.sub(r"[\(\[\{][^\)\]\}]*[\)\]\}]", " ", text)
+    # Canal+/C+ expansion
+    text = re.sub(r"C\+", "CANALPLUS", text)
+    # Expand TVP1->TVP1, TVN24->TVN24 etc (remove space between letters+digits)
+    text = re.sub(r"\b(TVP|TVN|POLSAT)\s*(\d+)\b", r"\1\2", text)
+    # Remove noise words
+    tokens = re.findall(r"[A-Z0-9]+", text)
+    filtered = [t for t in tokens if t not in _EPG_NOISE_WORDS and len(t) >= 2]
+    return " ".join(filtered)
+
+def _epg_compact_name(text):
+    return _epg_simplify_name(text).replace(" ", "")
+
+def _epg_tokenize(text):
+    return [t for t in _epg_simplify_name(text).split() if len(t) >= 2]
+
+def _epg_name_variants(text):
+    variants = set()
+    base = _epg_compact_name(text)
+    if base:
+        variants.add(base)
+    simple = _epg_simplify_name(text)
+    if simple:
+        variants.add(simple.replace(" ", ""))
+    for canonical, aliases in _EPG_MANUAL_ALIASES.items():
+        for alias in aliases:
+            alias_compact = alias.replace(" ", "").upper()
+            if base == alias_compact or base == canonical:
+                variants.add(canonical)
+                variants.add(alias_compact)
+    return variants
+
+def _epg_build_service_entry(ref, name):
+    return {
+        "full_ref":  ref,
+        "name":      name,
+        "norm":      _epg_compact_name(name),
+        "tokens":    _epg_tokenize(name),
+        "candidates": list(_epg_name_variants(name)),
+    }
+
+def _epg_scan_from_bouquet_files():
+    """
+    Skanuje wszystkie /etc/enigma2/userbouquet.*.tv i zwraca listę wpisów
+    dla kanałów IPTV (type 4097/5001 lub URL w ref).
+    """
+    services = []
+    bouquet_dir = "/etc/enigma2"
+    try:
+        files = [
+            f for f in os.listdir(bouquet_dir)
+            if f.startswith("userbouquet.") and f.endswith(".tv")
+        ]
+    except Exception:
+        return services
+
+    for fname in files:
+        fpath = os.path.join(bouquet_dir, fname)
+        try:
+            with open(fpath, "r", errors="replace") as fh:
+                lines = fh.readlines()
+        except Exception:
+            continue
+
+        last_svc = None
+        for line in lines:
+            line = line.strip()
+            if line.startswith("#SERVICE "):
+                parts = line.split(" ", 1)
+                ref = parts[1].strip() if len(parts) > 1 else ""
+                # IPTV refs: type 4097 or 5001, or contain http/%3a
+                lower_ref = ref.lower()
+                if (":4097:" in ref or ":5001:" in ref or
+                        "http" in lower_ref or "%3a" in lower_ref):
+                    last_svc = ref
+                else:
+                    last_svc = None
+            elif line.startswith("#DESCRIPTION ") and last_svc:
+                name = line[len("#DESCRIPTION "):].strip()
+                if name:
+                    services.append(_epg_build_service_entry(last_svc, name))
+                last_svc = None
+            elif line and not line.startswith("#"):
+                last_svc = None
+    return services
+
+
+class _EpgAutoMapper(object):
+    """
+    Fuzzy name-based mapping: kanały Enigma2 ↔ channel-id z XMLTV.
+    Port automapper.py z IPTV_EPG_Manager.
+    """
+    def __init__(self, status_cb=None):
+        self._status_cb = status_cb
+
+    def _status(self, msg):
+        if self._status_cb:
+            try:
+                self._status_cb(msg)
+            except Exception:
+                pass
+
+    def _group_services(self, services):
+        groups = {}
+        for svc in services:
+            ref        = svc.get("full_ref")
+            candidates = [c for c in (svc.get("candidates") or []) if c]
+            primary    = svc.get("norm") or (candidates[0] if candidates else "")
+            if not primary:
+                continue
+            bucket = groups.setdefault(primary, {
+                "refs":       [],
+                "candidates": set(),
+                "tokens":     set(),
+                "name":       svc.get("name", ""),
+                "primary":    primary,
+            })
+            if ref and ref not in bucket["refs"]:
+                bucket["refs"].append(ref)
+            for c in candidates:
+                bucket["candidates"].add(c)
+            for variant in _epg_name_variants(svc.get("name", "")):
+                compact = variant.replace(" ", "")
+                if compact:
+                    bucket["candidates"].add(compact)
+            for token in _epg_tokenize(svc.get("name", "")):
+                bucket["tokens"].add(token)
+        return groups
+
+    def _build_xml_index(self, xml_path):
+        exact_index = {}
+        token_index = {}
+        entries     = {}
+        opener = gzip.open if str(xml_path).lower().endswith(".gz") else open
+        with opener(xml_path, "rb") as handle:
+            context = ET.iterparse(handle, events=("end",))
+            for _event, elem in context:
+                if elem.tag == "channel":
+                    xml_id = elem.get("id") or ""
+                    names  = [xml_id]
+                    for child in elem:
+                        if child.tag == "display-name" and child.text:
+                            names.append(child.text)
+                    compacts = set()
+                    tokens   = set()
+                    for raw_name in names:
+                        compact = _epg_compact_name(raw_name)
+                        if compact:
+                            compacts.add(compact)
+                            exact_index.setdefault(compact, set()).add(xml_id)
+                        for token in _epg_tokenize(raw_name):
+                            tokens.add(token)
+                            token_index.setdefault(token, set()).add(xml_id)
+                    if xml_id:
+                        entries[xml_id] = {"compacts": compacts, "tokens": tokens}
+                    elem.clear()
+                elif elem.tag == "programme":
+                    break
+        return exact_index, token_index, entries
+
+    def _candidate_xml_ids(self, group, exact_index, token_index, entries):
+        exact_hits = []
+        seen = set()
+        for candidate in sorted(group.get("candidates", set()), key=lambda x: (-len(x), x)):
+            for xml_id in exact_index.get(candidate, set()):
+                if xml_id not in seen:
+                    exact_hits.append(xml_id)
+                    seen.add(xml_id)
+        if exact_hits:
+            return exact_hits[:8]
+
+        pool = set()
+        sorted_tokens = sorted(list(group.get("tokens", set())), key=lambda x: (-len(x), x))
+        for token in sorted_tokens[:5]:
+            pool.update(token_index.get(token, set()))
+            if len(pool) >= 96:
+                break
+        if len(pool) > 128:
+            prefix   = (group.get("primary") or "")[:3]
+            filtered = [
+                xml_id for xml_id in pool
+                if prefix and any(c.startswith(prefix) for c in entries.get(xml_id, {}).get("compacts", set()))
+            ]
+            pool = set(filtered[:128]) if filtered else set(list(pool)[:128])
+        return list(pool)[:128]
+
+    def _score(self, group, entry):
+        group_compacts = [c for c in group.get("candidates", set()) if c]
+        entry_compacts = list(entry.get("compacts", set()))
+        group_tokens   = set(group.get("tokens", set()))
+        entry_tokens   = set(entry.get("tokens", set()))
+        overlap = len(group_tokens & entry_tokens)
+        best    = 0.0
+
+        for gc in group_compacts[:8]:
+            for xc in entry_compacts[:8]:
+                if gc == xc:
+                    return 1.0
+                if gc.startswith(xc) or xc.startswith(gc):
+                    best = max(best, 0.97)
+                elif gc in xc or xc in gc:
+                    best = max(best, 0.94)
+                else:
+                    ratio = difflib.SequenceMatcher(None, gc, xc).ratio()
+                    if ratio > best:
+                        best = ratio
+
+        if overlap:
+            coverage = float(overlap) / float(max(len(group_tokens), 1))
+            best = max(best, 0.52 + (0.18 * min(overlap, 3)) + (0.12 * coverage))
+
+        if group_tokens and entry_tokens:
+            missing = len(group_tokens - entry_tokens)
+            if missing >= 2:
+                best -= 0.08 * missing
+        return max(best, 0.0)
+
+    def _allow_shared_xml(self, existing_group, new_group):
+        left  = existing_group.get("primary", "")
+        right = new_group.get("primary", "")
+        if left == right:
+            return True
+        left_tokens  = set(existing_group.get("tokens", set()))
+        right_tokens = set(new_group.get("tokens", set()))
+        overlap = len(left_tokens & right_tokens)
+        if overlap >= max(2, min(len(left_tokens), len(right_tokens))):
+            return True
+        return difflib.SequenceMatcher(None, left, right).ratio() >= 0.96
+
+    def generate_mapping(self, services, xml_path):
+        """
+        Zwraca (mapping, stats).
+        mapping: {xml_channel_id: [service_ref, ...]}
+        stats:   {"groups": N, "matched_groups": M, "xml_ids": K}
+        """
+        groups = self._group_services(services)
+        self._status("AutoMapper: indeksowanie XMLTV...")
+        exact_index, token_index, entries = self._build_xml_index(xml_path)
+
+        mapping   = {}
+        xml_usage = {}
+        total     = len(groups)
+        matched   = 0
+
+        for idx, (group_key, group) in enumerate(sorted(groups.items())):
+            best_options = []
+            candidates = self._candidate_xml_ids(group, exact_index, token_index, entries)
+            for xml_id in candidates:
+                entry = entries.get(xml_id)
+                if not entry:
+                    continue
+                score = self._score(group, entry)
+                if score >= 0.90:
+                    best_options.append((score, xml_id))
+            best_options.sort(key=lambda x: (-x[0], x[1]))
+
+            chosen_xml = None
+            for score, xml_id in best_options:
+                owner = xml_usage.get(xml_id)
+                if owner and not self._allow_shared_xml(owner, group):
+                    continue
+                overlap = len(set(group.get("tokens", set())) & set(entries.get(xml_id, {}).get("tokens", set())))
+                if score < 0.97 and overlap == 0:
+                    continue
+                chosen_xml = xml_id
+                xml_usage.setdefault(xml_id, group)
+                break
+
+            if chosen_xml:
+                refs = mapping.setdefault(chosen_xml, [])
+                for sref in group.get("refs", []):
+                    if sref not in refs:
+                        refs.append(sref)
+                matched += 1
+
+            if (idx + 1) % 50 == 0 or (idx + 1) == total:
+                self._status("AutoMapper: %d/%d grup..." % (idx + 1, total))
+
+        return mapping, {"groups": total, "matched_groups": matched, "xml_ids": len(mapping)}
+
+
 # --- GLOWNY EKRAN ---
 class PoterXScreen(ConfigListScreen, Screen):
     # ── Wykrywanie rozdzielczości ────────────────────────────────────────────
@@ -1219,187 +1556,174 @@ class PoterXScreen(ConfigListScreen, Screen):
 
     def _epg_import_thread(self, host, user, password):
         """
-        Background worker:
-          1. get_live_streams → build epg_channel_id → service_ref map
-          2. Download xmltv.php with chunk-by-chunk MB progress
-          3. Parse <programme> tags into events list
-        No Enigma2 API calls here – all injection happens in the main thread.
+        Background worker – AutoMapper approach (port z IPTV_EPG_Manager):
+          1. Skanuj bouquety Enigma2 -> lista serwisów IPTV
+          2. Pobierz XMLTV z panelu (z postępem MB)
+          3. AutoMapper: indeksuj <channel> w XMLTV, fuzzy-matchuj do serwisów
+          4. iterparse <programme> -> zbierz eventy wg zmapowanych ref
+        Żadnych wywołań Enigma2 API – tylko czysty Python.
         """
         import time as _time
+        import datetime as _datetime
 
-        def _parse_xmltv_time(s):
+        def _parse_xmltv_ts(s):
+            """Parsuje timestamp XMLTV z obsługą offsetu strefy czasowej."""
             s = (s or "").strip()
-            ts_part = s[:14] if len(s) >= 14 else s
+            m = re.match(r"^(\d{14})(?:\s*([+-]\d{4}|Z))?", s)
+            if not m:
+                return 0
+            stamp, offset = m.groups()
             try:
-                return int(_time.mktime(_time.strptime(ts_part, "%Y%m%d%H%M%S")))
+                dt = _datetime.datetime.strptime(stamp, "%Y%m%d%H%M%S")
+            except Exception:
+                return 0
+            if offset and offset != "Z":
+                try:
+                    sign  = 1 if offset[0] == "+" else -1
+                    hours = int(offset[1:3])
+                    mins  = int(offset[3:5])
+                    delta = _datetime.timedelta(hours=hours, minutes=mins)
+                    dt    = dt - sign * delta
+                    return int((dt - _datetime.datetime(1970, 1, 1)).total_seconds())
+                except Exception:
+                    pass
+            elif offset == "Z":
+                try:
+                    return int((dt - _datetime.datetime(1970, 1, 1)).total_seconds())
+                except Exception:
+                    pass
+            try:
+                return int(_time.mktime(dt.timetuple()))
             except Exception:
                 return 0
 
         try:
-            # ── Step 1: get_live_streams ─────────────────────────────────────
-            self._epg_import_status = "Pobieranie listy kanalow z API panelu..."
-            streams_url = "%s/player_api.php?username=%s&password=%s&action=get_live_streams" % (
-                host, user, password
-            )
-            req = Request(streams_url)
-            req.add_header("User-Agent", "Enigma2-PoterX")
-            raw = to_str(urlopen(req, timeout=60).read())
-            streams = json.loads(raw)
-
-            if not isinstance(streams, list) or not streams:
-                self._epg_import_result = (False, "API nie zwrocilo listy kanalow.")
-                return
-
-            # ── Step 2: match stream epg_channel_id to bouquet service refs ──
-            self._epg_import_status = "Mapowanie %d kanalow..." % len(streams)
-            bouquet_by_stream, bouquet_by_norm, bouquet_by_canon = self._collect_bouquet_channel_maps()
-
-            epgid_to_refs = {}   # epg_channel_id -> [sref_str, ...]
-            for stream in streams:
-                epg_id = (
-                    str(stream.get("epg_channel_id") or "").strip()
-                    or str(stream.get("tvg_id") or "").strip()
-                )
-                if not epg_id:
-                    continue
-                stream_id = str(stream.get("stream_id") or "").strip()
-                name      = str(stream.get("name") or "").strip()
-
-                pair = None
-                if stream_id and stream_id in bouquet_by_stream:
-                    pair = bouquet_by_stream[stream_id]
-                if not pair and name:
-                    for v in self._name_variants(name):
-                        if v in bouquet_by_norm:
-                            pair = bouquet_by_norm[v]
-                            break
-                if not pair and name:
-                    for v in self._name_variants(name):
-                        ck = _canonical_key(v)
-                        if ck in bouquet_by_canon:
-                            pair = bouquet_by_canon[ck]
-                            break
-
-                if pair:
-                    refs = self._service_ref_variants("", pair[1])
-                    if refs:
-                        epgid_to_refs[epg_id] = refs
-
-            if not epgid_to_refs:
+            # ── Krok 1: Skanowanie bouquetów Enigma2 ─────────────────────────
+            self._epg_import_status = "Skanowanie bouquetow Enigma2..."
+            services = _epg_scan_from_bouquet_files()
+            if not services:
                 self._epg_import_result = (
                     False,
-                    "Nie zmatchowano zadnego kanalu EPG.\n"
-                    "Sprawdz czy kanaly IPTV sa w bouquetach Enigma2."
+                    "Nie znaleziono kanalow IPTV w bouquetach Enigma2.\n"
+                    "Najpierw pobierz kanaly IPTV (zielony przycisk)."
                 )
                 return
+            self._epg_import_status = "Znaleziono %d kanalow IPTV w bouquetach." % len(services)
 
-            self._epg_channel_count = len(epgid_to_refs)
-
-            # ── Step 3: Download XMLTV with chunk-by-chunk MB progress ───────
+            # ── Krok 2: Pobieranie XMLTV z panelu ────────────────────────────
             xmltv_url = "%s/xmltv.php?username=%s&password=%s" % (host, user, password)
             req = Request(xmltv_url)
             req.add_header("User-Agent", "Enigma2-PoterX")
-            response = urlopen(req, timeout=150)
+            response = urlopen(req, timeout=180)
 
             content_length = 0
             try:
                 content_length = int(response.headers.get("Content-Length") or 0)
             except Exception:
                 pass
-            total_mb = content_length / (1024.0 * 1024.0) if content_length > 0 else 0
+            total_mb  = content_length / (1024.0 * 1024.0) if content_length > 0 else 0
 
-            chunks    = []
+            tmp_path   = "/tmp/poterx_xmltv_tmp.xml"
             downloaded = 0
-            last_mb   = -1
+            last_mb    = -1
 
-            while True:
-                chunk = response.read(65536)
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                downloaded += len(chunk)
-                current_mb = downloaded // (1024 * 1024)
-                if current_mb != last_mb:
-                    last_mb = current_mb
-                    if content_length > 0:
-                        pct = int(downloaded * 100 / content_length)
-                        self._epg_import_status = (
-                            "Pobieranie XMLTV: %.1f / %.1f MB (%d%%)" % (current_mb, total_mb, pct)
-                        )
-                    else:
-                        self._epg_import_status = "Pobieranie XMLTV: %.1f MB..." % current_mb
+            with open(tmp_path, "wb") as tmpf:
+                while True:
+                    chunk = response.read(65536)
+                    if not chunk:
+                        break
+                    tmpf.write(chunk)
+                    downloaded += len(chunk)
+                    current_mb  = downloaded // (1024 * 1024)
+                    if current_mb != last_mb:
+                        last_mb = current_mb
+                        if content_length > 0:
+                            pct = int(downloaded * 100 / content_length)
+                            self._epg_import_status = (
+                                "Pobieranie XMLTV: %.1f / %.1f MB (%d%%)" % (current_mb, total_mb, pct)
+                            )
+                        else:
+                            self._epg_import_status = "Pobieranie XMLTV: %.1f MB..." % current_mb
 
-            xmltv_raw = to_str(b"".join(chunks))
-            chunks = None   # free memory
+            self._epg_import_status = "Pobrano %.1f MB. AutoMapper..." % (downloaded / (1024.0 * 1024.0))
 
-            # ── Step 4: Parse <programme> tags ───────────────────────────────
-            self._epg_import_status = "Parsowanie XMLTV..."
-            lines       = xmltv_raw.splitlines()
-            xmltv_raw   = None   # free memory
-            total_lines = len(lines)
+            # ── Krok 3: AutoMapper – fuzzy matching ──────────────────────────
+            def _am_status(msg):
+                self._epg_import_status = msg
 
-            events_by_ref = {}   # sref_str -> [(start, dur, title, short_desc, long_desc), ...]
+            mapper = _EpgAutoMapper(status_cb=_am_status)
+            mapping, stats = mapper.generate_mapping(services, tmp_path)
+            # mapping: {xml_channel_id: [sref_str, ...]}
+
+            if not mapping:
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+                self._epg_import_result = (
+                    False,
+                    "AutoMapper nie zmapował żadnego kanału.\n"
+                    "Sprawdź czy kanały IPTV są w bouquetach Enigma2."
+                )
+                return
+
+            self._epg_channel_count = stats.get("matched_groups", 0)
+            self._epg_import_status = (
+                "Zmapowano %d/%d grup → %d xml_ids. Parsowanie eventow..." % (
+                    stats["matched_groups"], stats["groups"], stats["xml_ids"]
+                )
+            )
+
+            # ── Krok 4: iterparse <programme> → zbierz eventy ────────────────
+            now_ts = int(_time.time())
+            max_ts = now_ts + 3 * 86400   # max 3 dni wprzód
+
+            events_by_ref = {}
             total_parsed  = 0
+            prog_count    = 0
 
-            in_prog   = False
-            cur_ch    = ""
-            cur_start = 0
-            cur_end   = 0
-            cur_title = ""
-            cur_desc  = ""
+            is_gz = tmp_path.lower().endswith(".gz")
+            opener = gzip.open if is_gz else open
+            with opener(tmp_path, "rb") as xmlf:
+                context = ET.iterparse(xmlf, events=("end",))
+                for _ev, elem in context:
+                    if elem.tag != "programme":
+                        elem.clear()
+                        continue
 
-            for i, line in enumerate(lines):
-                line = line.strip()
+                    channel_id = elem.get("channel") or ""
+                    refs = mapping.get(channel_id)
+                    if refs:
+                        start = _parse_xmltv_ts(elem.get("start") or "")
+                        stop  = _parse_xmltv_ts(elem.get("stop") or "")
+                        if start and stop and start <= max_ts and stop >= now_ts:
+                            duration = max(stop - start, 60)
+                            title = ""
+                            desc  = ""
+                            for child in elem:
+                                if child.tag == "title" and not title and child.text:
+                                    title = child.text.strip()[:240]
+                                elif child.tag == "desc" and not desc and child.text:
+                                    desc = child.text.strip()[:1024]
+                            if title:
+                                evt = (start, duration, title, desc[:200], desc)
+                                for sref_str in refs:
+                                    events_by_ref.setdefault(sref_str, []).append(evt)
+                                total_parsed += 1
 
-                # Update status every ~20 000 lines
-                if (i % 20000) == 0 and total_lines > 0:
-                    self._epg_import_status = (
-                        "Parsowanie XMLTV: %.0f%% (%d eventow)..." % (
-                            i * 100.0 / total_lines, total_parsed
+                    prog_count += 1
+                    if prog_count % 5000 == 0:
+                        self._epg_import_status = (
+                            "Parsowanie eventow: %d sparsowanych, %d pasujacych..." % (
+                                prog_count, total_parsed
+                            )
                         )
-                    )
+                    elem.clear()
 
-                if "<programme " in line:
-                    mc = re.search(r'channel="([^"]+)"', line)
-                    ms = re.search(r'start="([^"]+)"', line)
-                    me = re.search(r'stop="([^"]+)"', line)
-                    if mc and ms:
-                        cur_ch    = mc.group(1).strip()
-                        cur_start = _parse_xmltv_time(ms.group(1))
-                        cur_end   = _parse_xmltv_time(me.group(1)) if me else cur_start + 3600
-                        cur_title = ""
-                        cur_desc  = ""
-                        in_prog   = True
-                        tm = re.search(r'<title[^>]*>(.*?)</title>', line)
-                        if tm:
-                            cur_title = re.sub(r'<[^>]+>', '', tm.group(1)).strip()
-                    continue
-
-                if in_prog:
-                    tm = re.search(r'<title[^>]*>(.*?)</title>', line)
-                    if tm:
-                        cur_title = re.sub(r'<[^>]+>', '', tm.group(1)).strip()
-                    dm = re.search(r'<desc[^>]*>(.*?)</desc>', line)
-                    if dm:
-                        cur_desc = re.sub(r'<[^>]+>', '', dm.group(1)).strip()
-
-                if "</programme>" in line and in_prog:
-                    in_prog = False
-                    refs = epgid_to_refs.get(cur_ch)
-                    if refs and cur_start and cur_title:
-                        duration = max(cur_end - cur_start, 60)
-                        evt = (
-                            cur_start,
-                            duration,
-                            cur_title,
-                            cur_desc[:200] if cur_desc else "",
-                            cur_desc or "",
-                        )
-                        for sref_str in refs:
-                            events_by_ref.setdefault(sref_str, []).append(evt)
-                        total_parsed += 1
-
-            lines = None  # free memory
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
 
             self._epg_import_status = (
                 "Przygotowano %d eventow dla %d referencji. Wstrzykiwanie..." % (
@@ -1407,10 +1731,13 @@ class PoterXScreen(ConfigListScreen, Screen):
                 )
             )
             self._epg_pending_events = events_by_ref
-            # Signal the poll timer: ready to inject (main thread)
-            self._epg_import_result = (True, total_parsed)
+            self._epg_import_result  = (True, total_parsed, stats)
 
         except Exception as ex:
+            try:
+                os.remove("/tmp/poterx_xmltv_tmp.xml")
+            except Exception:
+                pass
             self._epg_import_result = (False, "Blad importu EPG: %s" % str(ex))
 
     def _epg_import_poll_check(self):
@@ -1428,7 +1755,10 @@ class PoterXScreen(ConfigListScreen, Screen):
         self._epg_import_timer.stop()
         self._epg_import_running = False
 
-        ok, data = self._epg_import_result
+        result_tuple  = self._epg_import_result
+        ok            = result_tuple[0]
+        data          = result_tuple[1]
+        am_stats      = result_tuple[2] if len(result_tuple) > 2 else {}
 
         if not ok:
             self["status"].setText("Blad importu EPG.")
@@ -1443,7 +1773,13 @@ class PoterXScreen(ConfigListScreen, Screen):
             self["status"].setText("Brak eventow EPG do wstrzykniecia.")
             self.session.open(
                 MessageBox,
-                "Parsowanie OK (%d eventow), ale brak zmapowanych referencji." % total_parsed,
+                "Parsowanie OK (%d eventow), ale brak zmapowanych referencji.\n\n"
+                "AutoMapper: grup=%d zmapowanych=%d xml_ids=%d" % (
+                    total_parsed,
+                    am_stats.get("groups", 0),
+                    am_stats.get("matched_groups", 0),
+                    am_stats.get("xml_ids", 0),
+                ),
                 MessageBox.TYPE_INFO,
             )
             return
@@ -1482,14 +1818,22 @@ class PoterXScreen(ConfigListScreen, Screen):
             except Exception:
                 pass
 
-            ch_count = getattr(self, "_epg_channel_count", 0)
             msg = (
                 "Import EPG zakonczony!\n\n"
-                "Wstrzyknietych eventow: %d\n"
-                "Kanalow zmapowanych:    %d\n"
-                "Referencji serwisow:    %d\n\n"
+                "Wstrzyknietych eventow:  %d\n"
+                "Referencji serwisow:     %d\n\n"
+                "AutoMapper:\n"
+                "  Grup kanalow:    %d\n"
+                "  Zmapowanych:     %d\n"
+                "  XML channel ID:  %d\n\n"
                 "EPG bedzie widoczne w przewodniku."
-            ) % (injected, ch_count, len(events_by_ref))
+            ) % (
+                injected,
+                len(events_by_ref),
+                am_stats.get("groups", 0),
+                am_stats.get("matched_groups", 0),
+                am_stats.get("xml_ids", 0),
+            )
 
             self["status"].setText("EPG OK: %d eventow." % injected)
             self.session.open(MessageBox, msg, MessageBox.TYPE_INFO)
