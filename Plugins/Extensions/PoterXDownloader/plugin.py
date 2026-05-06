@@ -499,163 +499,169 @@ auto_update_instance = AutoUpdateCheck()
 # --- AUTOMATYCZNY ODSWIEZACZ EPG (co 4h, jak satelitarny EIT) ---
 class EPGAutoRefresh:
     """
-    Periodycznie uruchamia EPGImport dla zrodla PoterX.
-    Dziala w tle, jak EIT na satelicie – EPG zawsze aktualne.
+    Co 6 godzin pobiera XMLTV z panelu i wstrzykuje EPG do eEPGCache
+    uzywajac tego samego AutoMappera co reczny import (niebieski przycisk).
+    Cala ciezka praca idzie w watek daemoniczny – Enigma2 nie jest blokowana.
     """
-    _INTERVAL_MS = 4 * 3600 * 1000  # 4 godziny
-    _INITIAL_DELAY_MS = 120 * 1000   # 2 minuty po starcie (zeby E2 zdazyl wstac)
+    _INTERVAL_MS      = 6 * 3600 * 1000   # co 6 godzin
+    _INITIAL_DELAY_MS = 3 * 60 * 1000     # 3 minuty po starcie (E2 musi wstac)
 
     def __init__(self):
+        self._running = False
+        self._inject_timer = None
+        self._pending      = {}   # sref_str -> [evt, ...]
         self._timer = eTimer()
-        self._timer.callback.append(self._run)
-        self._timer.start(self._INITIAL_DELAY_MS, True)  # True = jednorazowy (initial)
+        self._timer.callback.append(self._on_tick)
+        self._timer.start(self._INITIAL_DELAY_MS, True)
 
-    def _run(self):
-        # Po pierwszym uruchomieniu przelacz na cykliczny timer
+    def _on_tick(self):
+        """eTimer callback (main thread) – przełącz na cykliczny i odpal watek."""
         self._timer.stop()
-        self._timer.start(self._INTERVAL_MS, False)  # False = powtarzaj
+        self._timer.start(self._INTERVAL_MS, False)
 
-        # Sprawdz czy mamy pliki EPG
-        sources = "/etc/epgimport/poterx_iptv.sources.xml"
-        channels = "/etc/epgimport/poterx_iptv.channels.xml"
-        if not os.path.exists(sources) or not os.path.exists(channels):
+        host     = _sanitize_host(config.plugins.poterx.host.value)
+        user     = config.plugins.poterx.username.value
+        password = config.plugins.poterx.password.value
+        if not user or not password or self._running:
             return
 
-        # Probuj EPGImport
-        epgimport_dir = "/usr/lib/enigma2/python/Plugins/Extensions/EPGImport"
-        if os.path.isdir(epgimport_dir):
+        self._running = True
+        t = threading.Thread(target=self._worker, args=(host, user, password))
+        t.daemon = True
+        t.start()
+
+    def _worker(self, host, user, password):
+        """Watek tla: skanuj bouquety → pobierz XMLTV → AutoMapper → parse eventow."""
+        import time as _time
+        import datetime as _dt
+
+        def _parse_ts(s):
+            s = (s or "").strip()
+            m = re.match(r"^(\d{14})(?:\s*([+-]\d{4}|Z))?", s)
+            if not m:
+                return 0
+            stamp, offset = m.groups()
             try:
-                from enigma import eEPGCache
-                from Plugins.Extensions.EPGImport.EPGImport import EPGImport as EpgCls
-                from Plugins.Extensions.EPGImport.EPGConfig import enumSourcesFile
-                # channelFilter=None → importuj WSZYSTKO (nie odrzucaj)
-                epg = EpgCls(eEPGCache.getInstance(), None)
-                epg.onDone = lambda reboot=False, epgfile="": None
-                src_list = list(enumSourcesFile(sources))
-                if src_list:
-                    epg.sources = src_list
-                    epg.beginImport(longDescUntil=24 * 3600)
-                    return  # OK, EPGImport ogarnia
+                dt = _dt.datetime.strptime(stamp, "%Y%m%d%H%M%S")
             except Exception:
-                pass
-
-        # Fallback: bezposredni import XMLTV → eEPGCache (bez EPGImport)
-        try:
-            _direct_epg_import_standalone()
-        except Exception:
-            pass
-
-def _direct_epg_import_standalone():
-    """
-    Standalone wersja bezposredniego importu EPG (do uzytku z timera).
-    Czyta channels.xml + XMLTV → wstrzykuje do eEPGCache.
-    """
-    ch_path = "/etc/epgimport/poterx_iptv.channels.xml"
-    if not os.path.exists(ch_path):
-        return
-
-    # Odczytaj mapowanie epg_id → service_ref z channels.xml
-    epgid_to_sref = {}
-    try:
-        with open(ch_path, "r") as f:
-            for line in f:
-                m = re.search(r'<channel\s+id="([^"]+)">([^<]+)</channel>', line)
-                if m:
-                    eid = m.group(1).strip()
-                    sref = m.group(2).strip()
-                    if eid and sref and eid not in epgid_to_sref:
-                        epgid_to_sref[eid] = sref
-    except Exception:
-        return
-    if not epgid_to_sref:
-        return
-
-    host = _sanitize_host(config.plugins.poterx.host.value)
-    user = config.plugins.poterx.username.value
-    password = config.plugins.poterx.password.value
-    if not user or not password:
-        return
-
-    xmltv_url = "%s/xmltv.php?username=%s&password=%s" % (host, user, password)
-    try:
-        req = Request(xmltv_url)
-        req.add_header("User-Agent", "Enigma2-PoterX")
-        xmltv_raw = to_str(urlopen(req, timeout=120).read())
-    except Exception:
-        return
-
-    import time as _time
-    try:
-        from enigma import eEPGCache, eServiceReference
-    except ImportError:
-        return
-
-    epgcache = eEPGCache.getInstance()
-    has_importEvents = hasattr(epgcache, "importEvents")
-    has_importEvent = hasattr(epgcache, "importEvent")
-    if not has_importEvents and not has_importEvent:
-        return
-
-    imported = 0
-    cur_channel = ""
-    cur_start = 0
-    cur_end = 0
-    cur_title = ""
-    cur_desc = ""
-    in_programme = False
-
-    def _parse_ts(s):
-        s = (s or "").strip()[:14]
-        try:
-            return int(_time.mktime(_time.strptime(s, "%Y%m%d%H%M%S")))
-        except Exception:
-            return 0
-
-    for line in xmltv_raw.splitlines():
-        line = line.strip()
-        if "<programme " in line:
-            mc = re.search(r'channel="([^"]+)"', line)
-            ms = re.search(r'start="([^"]+)"', line)
-            me = re.search(r'stop="([^"]+)"', line)
-            if mc and ms:
-                cur_channel = mc.group(1).strip()
-                cur_start = _parse_ts(ms.group(1))
-                cur_end = _parse_ts(me.group(1)) if me else cur_start + 3600
-                cur_title = ""
-                cur_desc = ""
-                in_programme = True
-                tm = re.search(r'<title[^>]*>(.*?)</title>', line)
-                if tm:
-                    cur_title = re.sub(r'<[^>]+>', '', tm.group(1)).strip()
-            continue
-
-        if in_programme:
-            tm = re.search(r'<title[^>]*>(.*?)</title>', line)
-            if tm:
-                cur_title = re.sub(r'<[^>]+>', '', tm.group(1)).strip()
-            dm = re.search(r'<desc[^>]*>(.*?)</desc>', line)
-            if dm:
-                cur_desc = re.sub(r'<[^>]+>', '', dm.group(1)).strip()
-
-        if "</programme>" in line and in_programme:
-            in_programme = False
-            sref_str = epgid_to_sref.get(cur_channel, "")
-            if sref_str and cur_start and cur_title:
+                return 0
+            if offset and offset != "Z":
                 try:
-                    sref = eServiceReference(sref_str)
-                    duration = max(cur_end - cur_start, 60)
-                    evt = (cur_start, duration, cur_title, cur_desc[:200] if cur_desc else "", cur_desc or "")
-                    if has_importEvents:
-                        epgcache.importEvents(sref, [evt])
-                    elif has_importEvent:
-                        epgcache.importEvent(sref, evt)
-                    imported += 1
+                    sign  = 1 if offset[0] == "+" else -1
+                    hrs   = int(offset[1:3])
+                    mins  = int(offset[3:5])
+                    dt    = dt - sign * _dt.timedelta(hours=hrs, minutes=mins)
+                    return int((_dt.datetime(1970,1,1) - dt).total_seconds() * -1)
                 except Exception:
                     pass
+            elif offset == "Z":
+                try:
+                    return int((dt - _dt.datetime(1970, 1, 1)).total_seconds())
+                except Exception:
+                    pass
+            try:
+                return int(_time.mktime(dt.timetuple()))
+            except Exception:
+                return 0
 
-    if imported > 0:
+        tmp_path = "/tmp/poterx_autorefresh_xmltv.xml"
         try:
-            epgcache.save()
+            # 1. Skanuj bouquety
+            services = _epg_scan_from_bouquet_files()
+            if not services:
+                return
+
+            # 2. Pobierz XMLTV
+            xmltv_url = "%s/xmltv.php?username=%s&password=%s" % (host, user, password)
+            req = Request(xmltv_url)
+            req.add_header("User-Agent", "Enigma2-PoterX-AutoRefresh")
+            response = urlopen(req, timeout=180)
+            with open(tmp_path, "wb") as f:
+                while True:
+                    chunk = response.read(65536)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+
+            # 3. AutoMapper
+            mapper = _EpgAutoMapper()
+            mapping, _stats = mapper.generate_mapping(services, tmp_path)
+            if not mapping:
+                return
+
+            # 4. Parsuj <programme>
+            now_ts = int(_time.time())
+            max_ts = now_ts + 3 * 86400
+            events_by_ref = {}
+
+            with open(tmp_path, "rb") as xmlf:
+                context = ET.iterparse(xmlf, events=("end",))
+                for _ev, elem in context:
+                    if elem.tag != "programme":
+                        elem.clear()
+                        continue
+                    channel_id = elem.get("channel") or ""
+                    refs = mapping.get(channel_id)
+                    if refs:
+                        start = _parse_ts(elem.get("start") or "")
+                        stop  = _parse_ts(elem.get("stop") or "")
+                        if start and stop and start <= max_ts and stop >= now_ts:
+                            duration = max(stop - start, 60)
+                            title = ""
+                            desc  = ""
+                            for child in elem:
+                                if child.tag == "title" and not title and child.text:
+                                    title = child.text.strip()[:240]
+                                elif child.tag == "desc" and not desc and child.text:
+                                    desc = child.text.strip()[:1024]
+                            if title:
+                                evt = (start, duration, title, desc[:200], desc)
+                                for sref_str in refs:
+                                    events_by_ref.setdefault(sref_str, []).append(evt)
+                    elem.clear()
+
+            self._pending = events_by_ref
+
+        except Exception:
+            self._pending = {}
+        finally:
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+            # Wstrzyknij w watku glownym przez jednorazowy timer
+            self._inject_timer = eTimer()
+            self._inject_timer.callback.append(self._inject_in_main_thread)
+            self._inject_timer.start(100, True)
+
+    def _inject_in_main_thread(self):
+        """eTimer callback (main thread) – wstrzyknij eventy do eEPGCache."""
+        self._running = False
+        events_by_ref = self._pending
+        self._pending = {}
+        if not events_by_ref:
+            return
+        try:
+            from enigma import eEPGCache, eServiceReference
+            epgcache         = eEPGCache.getInstance()
+            has_importEvents = hasattr(epgcache, "importEvents")
+            has_importEvent  = hasattr(epgcache, "importEvent")
+            if not has_importEvents and not has_importEvent:
+                return
+            for sref_str, events in events_by_ref.items():
+                try:
+                    sref = eServiceReference(sref_str)
+                    if has_importEvents:
+                        epgcache.importEvents(sref, events)
+                    else:
+                        for evt in events:
+                            epgcache.importEvent(sref, evt)
+                except Exception:
+                    pass
+            try:
+                epgcache.save()
+            except Exception:
+                pass
         except Exception:
             pass
 
