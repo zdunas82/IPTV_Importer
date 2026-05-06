@@ -1017,204 +1017,268 @@ class PoterXScreen(ConfigListScreen, Screen):
     # Widget "config" BEZ transparent — system default background zawsze działa.
 
     if _DESKTOP_W >= 1920:
-        # ── FHD 1920×1080 ──────────────────────────────────────────────────
-        # eLabel=z0 (tlo), widget=z5 (tekst zawsze na wierzchu)
+        # ── FHD 1920×1080 ─ ekran 1280×720 ──────────────────────────────────
+        # Struktura: HEADER(86) + INFO(26) + SEP(2) + CONFIG(464) +
+        #            SEP(2) + STATUS(48) + SEP(2) + BUTTONS(52) + NAV(38) = 720
         skin = """
         <screen position="center,center" size="1280,720" title="PoterX Downloader">
 
-            <eLabel position="0,0"     size="1280,720" backgroundColor="#0D1117" zPosition="0" />
+            <!-- TLO GLOWNE -->
+            <eLabel position="0,0"      size="1280,720" backgroundColor="#0D1117" zPosition="0" />
 
-            <!-- NAGLOWEK -->
-            <eLabel position="0,0"     size="1280,76"  backgroundColor="#161B22" zPosition="0" />
-            <eLabel position="0,0"     size="5,76"     backgroundColor="#1F6FEB" zPosition="0" />
-            <eLabel position="0,74"    size="1280,3"   backgroundColor="#1F6FEB" zPosition="0" />
-            <widget name="header"      position="22,14" size="780,48"
-                    font="Regular;32"  halign="left" valign="center"
-                    foregroundColor="#FFFFFF" transparent="1" zPosition="5" />
-            <eLabel position="820,20"  size="435,36"   backgroundColor="#1A2744" zPosition="0" />
-            <eLabel position="820,20"  size="3,36"     backgroundColor="#1F6FEB" zPosition="0" />
-            <eLabel position="1252,20" size="3,36"     backgroundColor="#1F6FEB" zPosition="0" />
-            <widget name="ver_label"   position="823,20" size="429,36"
-                    font="Regular;22"  halign="center" valign="center"
-                    foregroundColor="#60A5FA" transparent="1" zPosition="5" />
+            <!-- ═══ NAGLOWEK (y=0, h=86) ═══ -->
+            <eLabel position="0,0"      size="1280,86"  backgroundColor="#161B22" zPosition="1" />
+            <eLabel position="0,0"      size="6,86"     backgroundColor="#58A6FF" zPosition="2" />
+            <eLabel position="0,83"     size="1280,3"   backgroundColor="#58A6FF" zPosition="2" />
+            <eLabel position="818,10"   size="1,66"     backgroundColor="#30363D" zPosition="2" />
+            <widget name="header"       position="18,0"  size="796,86"
+                    font="Regular;36"   halign="left"   valign="center"
+                    foregroundColor="#E6EDF3" transparent="1" zPosition="5" />
+            <widget name="ver_label"    position="830,0" size="440,86"
+                    font="Regular;22"   halign="left"   valign="center"
+                    foregroundColor="#58A6FF" transparent="1" zPosition="5" />
 
-            <!-- CONFIG -->
-            <eLabel position="0,78"    size="5,508"    backgroundColor="#1F6FEB" zPosition="0" />
-            <widget name="config"      position="6,78"  size="1268,508"
+            <!-- ═══ INFO BAR: user@host (y=86, h=26) ═══ -->
+            <eLabel position="0,86"     size="1280,26"  backgroundColor="#0D1117" zPosition="1" />
+            <eLabel position="0,86"     size="6,26"     backgroundColor="#D29922" zPosition="2" />
+            <widget name="info_label"   position="18,86" size="1248,26"
+                    font="Regular;18"   halign="left"   valign="center"
+                    foregroundColor="#8B949E" transparent="1" zPosition="5" />
+
+            <!-- SEPARATOR -->
+            <eLabel position="0,112"    size="1280,2"   backgroundColor="#21262D" zPosition="2" />
+
+            <!-- ═══ LISTA KONFIGURACJI (y=114, h=464) ═══ -->
+            <eLabel position="0,114"    size="6,464"    backgroundColor="#58A6FF" zPosition="2" />
+            <widget name="config"       position="7,114" size="1266,464"
                     scrollbarMode="showOnDemand" zPosition="5" />
 
-            <!-- POMOC -->
-            <eLabel position="0,590"   size="1280,1"   backgroundColor="#1F6FEB" zPosition="0" />
-            <widget name="help"        position="14,594" size="1252,28"
-                    font="Regular;20"  halign="left" valign="center"
-                    foregroundColor="#64748B" transparent="1" zPosition="5" />
+            <!-- SEPARATOR -->
+            <eLabel position="0,578"    size="1280,2"   backgroundColor="#21262D" zPosition="2" />
 
-            <!-- STATUS -->
-            <eLabel position="0,626"   size="1280,2"   backgroundColor="#334155" zPosition="0" />
-            <eLabel position="0,628"   size="1280,44"  backgroundColor="#161B22" zPosition="0" />
-            <eLabel position="14,638"  size="4,22"     backgroundColor="#1F6FEB" zPosition="0" />
-            <widget name="status"      position="26,628" size="1240,44"
-                    font="Regular;22"  halign="left" valign="center"
+            <!-- ═══ STATUS (y=580, h=48) ═══ -->
+            <eLabel position="0,580"    size="1280,48"  backgroundColor="#161B22" zPosition="1" />
+            <eLabel position="0,580"    size="6,48"     backgroundColor="#58A6FF" zPosition="2" />
+            <widget name="status"       position="18,580" size="1248,48"
+                    font="Regular;22"   halign="left"   valign="center"
                     foregroundColor="#94A3B8" transparent="1" zPosition="5" />
 
-            <!-- PRZYCISKI -->
-            <eLabel position="0,674"   size="1280,2"   backgroundColor="#21262D" zPosition="0" />
-            <eLabel position="0,676"   size="1280,44"  backgroundColor="#0A0A14" zPosition="0" />
-            <eLabel position="20,681"  size="295,34"   backgroundColor="#7F1D1D" zPosition="0" />
-            <widget name="key_red"     position="20,681" size="295,34"
-                    font="Regular;22"  halign="center" valign="center"
-                    foregroundColor="#FFFFFF" transparent="1" zPosition="5" />
-            <eLabel position="325,681" size="295,34"   backgroundColor="#14532D" zPosition="0" />
-            <widget name="key_green"   position="325,681" size="295,34"
-                    font="Regular;22"  halign="center" valign="center"
-                    foregroundColor="#FFFFFF" transparent="1" zPosition="5" />
-            <eLabel position="630,681" size="295,34"   backgroundColor="#713F12" zPosition="0" />
-            <widget name="key_yellow"  position="630,681" size="295,34"
-                    font="Regular;22"  halign="center" valign="center"
-                    foregroundColor="#FFFFFF" transparent="1" zPosition="5" />
-            <eLabel position="935,681" size="325,34"   backgroundColor="#1E3A8A" zPosition="0" />
-            <widget name="key_blue"    position="935,681" size="325,34"
-                    font="Regular;22"  halign="center" valign="center"
-                    foregroundColor="#FFFFFF" transparent="1" zPosition="5" />
+            <!-- SEPARATOR -->
+            <eLabel position="0,628"    size="1280,2"   backgroundColor="#30363D" zPosition="2" />
+
+            <!-- ═══ PRZYCISKI (y=630, h=52) ═══ -->
+            <eLabel position="0,630"    size="1280,52"  backgroundColor="#090E18" zPosition="1" />
+            <!-- Czerwony -->
+            <eLabel position="6,634"    size="304,44"   backgroundColor="#3D0A0A" zPosition="2" />
+            <eLabel position="6,634"    size="5,44"     backgroundColor="#F85149" zPosition="3" />
+            <widget name="key_red"      position="11,634" size="299,44"
+                    font="Regular;22"   halign="center" valign="center"
+                    foregroundColor="#FCA5A5" transparent="1" zPosition="5" />
+            <!-- Zielony -->
+            <eLabel position="318,634"  size="304,44"   backgroundColor="#0A2B15" zPosition="2" />
+            <eLabel position="318,634"  size="5,44"     backgroundColor="#3FB950" zPosition="3" />
+            <widget name="key_green"    position="323,634" size="299,44"
+                    font="Regular;22"   halign="center" valign="center"
+                    foregroundColor="#86EFAC" transparent="1" zPosition="5" />
+            <!-- Zolty -->
+            <eLabel position="630,634"  size="304,44"   backgroundColor="#2E1A00" zPosition="2" />
+            <eLabel position="630,634"  size="5,44"     backgroundColor="#D29922" zPosition="3" />
+            <widget name="key_yellow"   position="635,634" size="299,44"
+                    font="Regular;22"   halign="center" valign="center"
+                    foregroundColor="#FDE68A" transparent="1" zPosition="5" />
+            <!-- Niebieski -->
+            <eLabel position="942,634"  size="332,44"   backgroundColor="#081428" zPosition="2" />
+            <eLabel position="942,634"  size="5,44"     backgroundColor="#58A6FF" zPosition="3" />
+            <widget name="key_blue"     position="947,634" size="327,44"
+                    font="Regular;22"   halign="center" valign="center"
+                    foregroundColor="#BFDBFE" transparent="1" zPosition="5" />
+
+            <!-- ═══ PASEK NAWIGACJI (y=682, h=38) ═══ -->
+            <eLabel position="0,682"    size="1280,38"  backgroundColor="#010409" zPosition="1" />
+            <widget name="help"         position="14,682" size="1252,38"
+                    font="Regular;18"   halign="center" valign="center"
+                    foregroundColor="#3D444D" transparent="1" zPosition="5" />
+
         </screen>"""
 
     elif _DESKTOP_W >= 1280:
-        # ── HD 1280×720 ────────────────────────────────────────────────────
+        # ── HD 1280×720 ─ ekran 1100×580 ─────────────────────────────────────
+        # Struktura: HEADER(70) + INFO(22) + SEP(2) + CONFIG(368) +
+        #            SEP(2) + STATUS(40) + SEP(2) + BUTTONS(44) + NAV(30) = 580
         skin = """
         <screen position="center,center" size="1100,580" title="PoterX Downloader">
 
-            <eLabel position="0,0"     size="1100,580" backgroundColor="#0D1117" zPosition="0" />
+            <!-- TLO GLOWNE -->
+            <eLabel position="0,0"      size="1100,580" backgroundColor="#0D1117" zPosition="0" />
 
-            <!-- NAGLOWEK -->
-            <eLabel position="0,0"     size="1100,66"  backgroundColor="#161B22" zPosition="0" />
-            <eLabel position="0,0"     size="4,66"     backgroundColor="#1F6FEB" zPosition="0" />
-            <eLabel position="0,64"    size="1100,3"   backgroundColor="#1F6FEB" zPosition="0" />
-            <widget name="header"      position="16,12" size="676,42"
-                    font="Regular;28"  halign="left" valign="center"
-                    foregroundColor="#FFFFFF" transparent="1" zPosition="5" />
-            <eLabel position="706,18"  size="372,30"   backgroundColor="#1A2744" zPosition="0" />
-            <eLabel position="706,18"  size="3,30"     backgroundColor="#1F6FEB" zPosition="0" />
-            <eLabel position="1075,18" size="3,30"     backgroundColor="#1F6FEB" zPosition="0" />
-            <widget name="ver_label"   position="709,18" size="366,30"
-                    font="Regular;20"  halign="center" valign="center"
-                    foregroundColor="#60A5FA" transparent="1" zPosition="5" />
+            <!-- ═══ NAGLOWEK (y=0, h=70) ═══ -->
+            <eLabel position="0,0"      size="1100,70"  backgroundColor="#161B22" zPosition="1" />
+            <eLabel position="0,0"      size="5,70"     backgroundColor="#58A6FF" zPosition="2" />
+            <eLabel position="0,67"     size="1100,3"   backgroundColor="#58A6FF" zPosition="2" />
+            <eLabel position="668,8"    size="1,54"     backgroundColor="#30363D" zPosition="2" />
+            <widget name="header"       position="14,0"  size="650,70"
+                    font="Regular;30"   halign="left"   valign="center"
+                    foregroundColor="#E6EDF3" transparent="1" zPosition="5" />
+            <widget name="ver_label"    position="678,0" size="412,70"
+                    font="Regular;19"   halign="left"   valign="center"
+                    foregroundColor="#58A6FF" transparent="1" zPosition="5" />
 
-            <!-- CONFIG -->
-            <eLabel position="0,68"    size="4,404"    backgroundColor="#1F6FEB" zPosition="0" />
-            <widget name="config"      position="5,68"  size="1090,404"
+            <!-- ═══ INFO BAR (y=70, h=22) ═══ -->
+            <eLabel position="0,70"     size="1100,22"  backgroundColor="#0D1117" zPosition="1" />
+            <eLabel position="0,70"     size="5,22"     backgroundColor="#D29922" zPosition="2" />
+            <widget name="info_label"   position="14,70" size="1078,22"
+                    font="Regular;16"   halign="left"   valign="center"
+                    foregroundColor="#8B949E" transparent="1" zPosition="5" />
+
+            <!-- SEPARATOR -->
+            <eLabel position="0,92"     size="1100,2"   backgroundColor="#21262D" zPosition="2" />
+
+            <!-- ═══ LISTA KONFIGURACJI (y=94, h=368) ═══ -->
+            <eLabel position="0,94"     size="5,368"    backgroundColor="#58A6FF" zPosition="2" />
+            <widget name="config"       position="6,94"  size="1088,368"
                     scrollbarMode="showOnDemand" zPosition="5" />
 
-            <!-- POMOC -->
-            <eLabel position="0,476"   size="1100,1"   backgroundColor="#1F6FEB" zPosition="0" />
-            <widget name="help"        position="10,480" size="1080,24"
-                    font="Regular;18"  halign="left" valign="center"
-                    foregroundColor="#64748B" transparent="1" zPosition="5" />
+            <!-- SEPARATOR -->
+            <eLabel position="0,462"    size="1100,2"   backgroundColor="#21262D" zPosition="2" />
 
-            <!-- STATUS -->
-            <eLabel position="0,508"   size="1100,2"   backgroundColor="#334155" zPosition="0" />
-            <eLabel position="0,510"   size="1100,38"  backgroundColor="#161B22" zPosition="0" />
-            <eLabel position="10,520"  size="4,18"     backgroundColor="#1F6FEB" zPosition="0" />
-            <widget name="status"      position="22,510" size="1066,38"
-                    font="Regular;20"  halign="left" valign="center"
+            <!-- ═══ STATUS (y=464, h=40) ═══ -->
+            <eLabel position="0,464"    size="1100,40"  backgroundColor="#161B22" zPosition="1" />
+            <eLabel position="0,464"    size="5,40"     backgroundColor="#58A6FF" zPosition="2" />
+            <widget name="status"       position="14,464" size="1078,40"
+                    font="Regular;20"   halign="left"   valign="center"
                     foregroundColor="#94A3B8" transparent="1" zPosition="5" />
 
-            <!-- PRZYCISKI -->
-            <eLabel position="0,550"   size="1100,2"   backgroundColor="#21262D" zPosition="0" />
-            <eLabel position="0,552"   size="1100,28"  backgroundColor="#0A0A14" zPosition="0" />
-            <eLabel position="12,554"  size="254,24"   backgroundColor="#7F1D1D" zPosition="0" />
-            <widget name="key_red"     position="12,554" size="254,24"
-                    font="Regular;18"  halign="center" valign="center"
-                    foregroundColor="#FFFFFF" transparent="1" zPosition="5" />
-            <eLabel position="274,554" size="254,24"   backgroundColor="#14532D" zPosition="0" />
-            <widget name="key_green"   position="274,554" size="254,24"
-                    font="Regular;18"  halign="center" valign="center"
-                    foregroundColor="#FFFFFF" transparent="1" zPosition="5" />
-            <eLabel position="536,554" size="254,24"   backgroundColor="#713F12" zPosition="0" />
-            <widget name="key_yellow"  position="536,554" size="254,24"
-                    font="Regular;18"  halign="center" valign="center"
-                    foregroundColor="#FFFFFF" transparent="1" zPosition="5" />
-            <eLabel position="798,554" size="290,24"   backgroundColor="#1E3A8A" zPosition="0" />
-            <widget name="key_blue"    position="798,554" size="290,24"
-                    font="Regular;18"  halign="center" valign="center"
-                    foregroundColor="#FFFFFF" transparent="1" zPosition="5" />
+            <!-- SEPARATOR -->
+            <eLabel position="0,504"    size="1100,2"   backgroundColor="#30363D" zPosition="2" />
+
+            <!-- ═══ PRZYCISKI (y=506, h=44) ═══ -->
+            <eLabel position="0,506"    size="1100,44"  backgroundColor="#090E18" zPosition="1" />
+            <!-- Czerwony -->
+            <eLabel position="4,510"    size="258,36"   backgroundColor="#3D0A0A" zPosition="2" />
+            <eLabel position="4,510"    size="4,36"     backgroundColor="#F85149" zPosition="3" />
+            <widget name="key_red"      position="8,510"  size="254,36"
+                    font="Regular;19"   halign="center" valign="center"
+                    foregroundColor="#FCA5A5" transparent="1" zPosition="5" />
+            <!-- Zielony -->
+            <eLabel position="270,510"  size="258,36"   backgroundColor="#0A2B15" zPosition="2" />
+            <eLabel position="270,510"  size="4,36"     backgroundColor="#3FB950" zPosition="3" />
+            <widget name="key_green"    position="274,510" size="254,36"
+                    font="Regular;19"   halign="center" valign="center"
+                    foregroundColor="#86EFAC" transparent="1" zPosition="5" />
+            <!-- Zolty -->
+            <eLabel position="536,510"  size="258,36"   backgroundColor="#2E1A00" zPosition="2" />
+            <eLabel position="536,510"  size="4,36"     backgroundColor="#D29922" zPosition="3" />
+            <widget name="key_yellow"   position="540,510" size="254,36"
+                    font="Regular;19"   halign="center" valign="center"
+                    foregroundColor="#FDE68A" transparent="1" zPosition="5" />
+            <!-- Niebieski -->
+            <eLabel position="802,510"  size="294,36"   backgroundColor="#081428" zPosition="2" />
+            <eLabel position="802,510"  size="4,36"     backgroundColor="#58A6FF" zPosition="3" />
+            <widget name="key_blue"     position="806,510" size="290,36"
+                    font="Regular;19"   halign="center" valign="center"
+                    foregroundColor="#BFDBFE" transparent="1" zPosition="5" />
+
+            <!-- ═══ PASEK NAWIGACJI (y=550, h=30) ═══ -->
+            <eLabel position="0,550"    size="1100,30"  backgroundColor="#010409" zPosition="1" />
+            <widget name="help"         position="10,550" size="1080,30"
+                    font="Regular;16"   halign="center" valign="center"
+                    foregroundColor="#3D444D" transparent="1" zPosition="5" />
+
         </screen>"""
 
     else:
-        # ── SD 720×576 ─────────────────────────────────────────────────────
+        # ── SD 720×576 ─ ekran 660,430 ───────────────────────────────────────
+        # Struktura: HEADER(52) + INFO(18) + SEP(2) + CONFIG(252) +
+        #            SEP(2) + STATUS(34) + SEP(2) + BUTTONS(38) + NAV(30) = 430
         skin = """
         <screen position="center,center" size="660,430" title="PoterX Downloader">
 
-            <eLabel position="0,0"     size="660,430"  backgroundColor="#0D1117" zPosition="0" />
+            <!-- TLO GLOWNE -->
+            <eLabel position="0,0"      size="660,430"  backgroundColor="#0D1117" zPosition="0" />
 
-            <!-- NAGLOWEK -->
-            <eLabel position="0,0"     size="660,54"   backgroundColor="#161B22" zPosition="0" />
-            <eLabel position="0,0"     size="4,54"     backgroundColor="#1F6FEB" zPosition="0" />
-            <eLabel position="0,52"    size="660,2"    backgroundColor="#1F6FEB" zPosition="0" />
-            <widget name="header"      position="12,8"  size="418,38"
-                    font="Regular;22"  halign="left" valign="center"
-                    foregroundColor="#FFFFFF" transparent="1" zPosition="5" />
-            <eLabel position="436,12"  size="212,30"   backgroundColor="#1A2744" zPosition="0" />
-            <eLabel position="436,12"  size="3,30"     backgroundColor="#1F6FEB" zPosition="0" />
-            <eLabel position="645,12"  size="3,30"     backgroundColor="#1F6FEB" zPosition="0" />
-            <widget name="ver_label"   position="439,12" size="206,30"
-                    font="Regular;17"  halign="center" valign="center"
-                    foregroundColor="#60A5FA" transparent="1" zPosition="5" />
+            <!-- ═══ NAGLOWEK (y=0, h=52) ═══ -->
+            <eLabel position="0,0"      size="660,52"   backgroundColor="#161B22" zPosition="1" />
+            <eLabel position="0,0"      size="4,52"     backgroundColor="#58A6FF" zPosition="2" />
+            <eLabel position="0,49"     size="660,3"    backgroundColor="#58A6FF" zPosition="2" />
+            <eLabel position="396,6"    size="1,40"     backgroundColor="#30363D" zPosition="2" />
+            <widget name="header"       position="10,0"  size="382,52"
+                    font="Regular;23"   halign="left"   valign="center"
+                    foregroundColor="#E6EDF3" transparent="1" zPosition="5" />
+            <widget name="ver_label"    position="402,0" size="252,52"
+                    font="Regular;16"   halign="left"   valign="center"
+                    foregroundColor="#58A6FF" transparent="1" zPosition="5" />
 
-            <!-- CONFIG -->
-            <eLabel position="0,55"    size="4,272"    backgroundColor="#1F6FEB" zPosition="0" />
-            <widget name="config"      position="5,55"  size="650,272"
+            <!-- ═══ INFO BAR (y=52, h=18) ═══ -->
+            <eLabel position="0,52"     size="660,18"   backgroundColor="#0D1117" zPosition="1" />
+            <eLabel position="0,52"     size="4,18"     backgroundColor="#D29922" zPosition="2" />
+            <widget name="info_label"   position="10,52" size="646,18"
+                    font="Regular;14"   halign="left"   valign="center"
+                    foregroundColor="#8B949E" transparent="1" zPosition="5" />
+
+            <!-- SEPARATOR -->
+            <eLabel position="0,70"     size="660,2"    backgroundColor="#21262D" zPosition="2" />
+
+            <!-- ═══ LISTA KONFIGURACJI (y=72, h=252) ═══ -->
+            <eLabel position="0,72"     size="4,252"    backgroundColor="#58A6FF" zPosition="2" />
+            <widget name="config"       position="5,72"  size="650,252"
                     scrollbarMode="showOnDemand" zPosition="5" />
 
-            <!-- POMOC -->
-            <eLabel position="0,330"   size="660,1"    backgroundColor="#1F6FEB" zPosition="0" />
-            <widget name="help"        position="8,334" size="644,20"
-                    font="Regular;16"  halign="left" valign="center"
-                    foregroundColor="#64748B" transparent="1" zPosition="5" />
+            <!-- SEPARATOR -->
+            <eLabel position="0,324"    size="660,2"    backgroundColor="#21262D" zPosition="2" />
 
-            <!-- STATUS -->
-            <eLabel position="0,358"   size="660,2"    backgroundColor="#334155" zPosition="0" />
-            <eLabel position="0,360"   size="660,36"   backgroundColor="#161B22" zPosition="0" />
-            <eLabel position="8,369"   size="3,16"     backgroundColor="#1F6FEB" zPosition="0" />
-            <widget name="status"      position="18,360" size="632,36"
-                    font="Regular;17"  halign="left" valign="center"
+            <!-- ═══ STATUS (y=326, h=34) ═══ -->
+            <eLabel position="0,326"    size="660,34"   backgroundColor="#161B22" zPosition="1" />
+            <eLabel position="0,326"    size="4,34"     backgroundColor="#58A6FF" zPosition="2" />
+            <widget name="status"       position="10,326" size="646,34"
+                    font="Regular;17"   halign="left"   valign="center"
                     foregroundColor="#94A3B8" transparent="1" zPosition="5" />
 
-            <!-- PRZYCISKI -->
-            <eLabel position="0,398"   size="660,2"    backgroundColor="#21262D" zPosition="0" />
-            <eLabel position="0,400"   size="660,30"   backgroundColor="#0A0A14" zPosition="0" />
-            <eLabel position="10,403"  size="148,24"   backgroundColor="#7F1D1D" zPosition="0" />
-            <widget name="key_red"     position="10,403" size="148,24"
-                    font="Regular;16"  halign="center" valign="center"
-                    foregroundColor="#FFFFFF" transparent="1" zPosition="5" />
-            <eLabel position="166,403" size="148,24"   backgroundColor="#14532D" zPosition="0" />
-            <widget name="key_green"   position="166,403" size="148,24"
-                    font="Regular;16"  halign="center" valign="center"
-                    foregroundColor="#FFFFFF" transparent="1" zPosition="5" />
-            <eLabel position="322,403" size="148,24"   backgroundColor="#713F12" zPosition="0" />
-            <widget name="key_yellow"  position="322,403" size="148,24"
-                    font="Regular;16"  halign="center" valign="center"
-                    foregroundColor="#FFFFFF" transparent="1" zPosition="5" />
-            <eLabel position="478,403" size="172,24"   backgroundColor="#1E3A8A" zPosition="0" />
-            <widget name="key_blue"    position="478,403" size="172,24"
-                    font="Regular;16"  halign="center" valign="center"
-                    foregroundColor="#FFFFFF" transparent="1" zPosition="5" />
+            <!-- SEPARATOR -->
+            <eLabel position="0,360"    size="660,2"    backgroundColor="#30363D" zPosition="2" />
 
-            <eLabel position="168,401" size="150,26" backgroundColor="#14532D" />
-            <widget name="key_green"
-                    position="168,401" size="150,26"
-                    font="Regular;17" halign="center" valign="center"
-                    foregroundColor="#BBF7D0" backgroundColor="#14532D" />
+            <!-- ═══ PRZYCISKI (y=362, h=38) ═══ -->
+            <eLabel position="0,362"    size="660,38"   backgroundColor="#090E18" zPosition="1" />
+            <!-- Czerwony -->
+            <eLabel position="4,365"    size="152,32"   backgroundColor="#3D0A0A" zPosition="2" />
+            <eLabel position="4,365"    size="4,32"     backgroundColor="#F85149" zPosition="3" />
+            <widget name="key_red"      position="8,365"  size="148,32"
+                    font="Regular;16"   halign="center" valign="center"
+                    foregroundColor="#FCA5A5" transparent="1" zPosition="5" />
+            <!-- Zielony -->
+            <eLabel position="162,365"  size="152,32"   backgroundColor="#0A2B15" zPosition="2" />
+            <eLabel position="162,365"  size="4,32"     backgroundColor="#3FB950" zPosition="3" />
+            <widget name="key_green"    position="166,365" size="148,32"
+                    font="Regular;16"   halign="center" valign="center"
+                    foregroundColor="#86EFAC" transparent="1" zPosition="5" />
+            <!-- Zolty -->
+            <eLabel position="320,365"  size="152,32"   backgroundColor="#2E1A00" zPosition="2" />
+            <eLabel position="320,365"  size="4,32"     backgroundColor="#D29922" zPosition="3" />
+            <widget name="key_yellow"   position="324,365" size="148,32"
+                    font="Regular;16"   halign="center" valign="center"
+                    foregroundColor="#FDE68A" transparent="1" zPosition="5" />
+            <!-- Niebieski -->
+            <eLabel position="478,365"  size="178,32"   backgroundColor="#081428" zPosition="2" />
+            <eLabel position="478,365"  size="4,32"     backgroundColor="#58A6FF" zPosition="3" />
+            <widget name="key_blue"     position="482,365" size="174,32"
+                    font="Regular;16"   halign="center" valign="center"
+                    foregroundColor="#BFDBFE" transparent="1" zPosition="5" />
+
+            <!-- ═══ PASEK NAWIGACJI (y=400, h=30) ═══ -->
+            <eLabel position="0,400"    size="660,30"   backgroundColor="#010409" zPosition="1" />
+            <widget name="help"         position="8,400"  size="644,30"
+                    font="Regular;14"   halign="center" valign="center"
+                    foregroundColor="#3D444D" transparent="1" zPosition="5" />
 
         </screen>"""
 
     # Etykiety pozycji-akcji (musza pasowac do sprawdzen w ok_pressed)
-    _ACT_IPTV    = " [OK]  Pobierz kanaly LIVE  ->  IPTV | PoterX"
-    _ACT_EPG     = " [OK]  Importuj EPG bezposrednio"
-    _ACT_CANAL   = " [OK]  Podmien kanaly Canal+  (Bzyk83)"
-    _ACT_HOTBIRD = " [OK]  Pobierz moja liste + Podmien Canal+"
-    _ACT_PICONS  = " [OK]  Pobierz picony"
-    _ACT_UPDATE  = " [OK]  Sprawdz aktualizacje wtyczki"
-    _ACT_DIAG    = " [OK]  Diagnostyka EPG  (szczegolowy raport)"
+    _ACT_IPTV    = "   ▶   Pobierz kanaly LIVE  →  IPTV | PoterX"
+    _ACT_EPG     = "   ▶   Importuj EPG bezposrednio"
+    _ACT_CANAL   = "   ▶   Podmien kanaly Canal+  (Bzyk83)"
+    _ACT_HOTBIRD = "   ▶   Pobierz moja liste + Podmien Canal+"
+    _ACT_PICONS  = "   ▶   Pobierz picony"
+    _ACT_UPDATE  = "   ▶   Sprawdz aktualizacje wtyczki"
+    _ACT_DIAG    = "   ▶   Diagnostyka EPG"
 
     def __init__(self, session):
         Screen.__init__(self, session)
@@ -1225,7 +1289,7 @@ class PoterXScreen(ConfigListScreen, Screen):
 
         # ── Sekcja AKCJE ─────────────────────────────────────────────────────
         self.list.append(getConfigListEntry(
-            " ════════  AKCJE  ════════════════════════════", ConfigNothing()))
+            "  ───  AKCJE ─────────────────────────────────────────", ConfigNothing()))
         self.list.append(getConfigListEntry(self._ACT_IPTV,    ConfigNothing()))
         self.list.append(getConfigListEntry(self._ACT_EPG,     ConfigNothing()))
         self.list.append(getConfigListEntry(self._ACT_CANAL,   ConfigNothing()))
@@ -1236,55 +1300,56 @@ class PoterXScreen(ConfigListScreen, Screen):
 
         # ── Sekcja KONTO IPTV ────────────────────────────────────────────────
         self.list.append(getConfigListEntry(
-            " ════════  KONTO IPTV  ══════════════════════", ConfigNothing()))
-        self.list.append(getConfigListEntry("    Uzytkownik",          config.plugins.poterx.username))
-        self.list.append(getConfigListEntry("    Haslo",               config.plugins.poterx.password))
-        self.list.append(getConfigListEntry("    Auto aktualizacja",   config.plugins.poterx.auto_update))
-        self.list.append(getConfigListEntry("    Godzina auto",        config.plugins.poterx.auto_update_time))
+            "  ───  KONTO IPTV ──────────────────────────────────", ConfigNothing()))
+        self.list.append(getConfigListEntry("     Uzytkownik",          config.plugins.poterx.username))
+        self.list.append(getConfigListEntry("     Haslo",               config.plugins.poterx.password))
+        self.list.append(getConfigListEntry("     Auto aktualizacja",   config.plugins.poterx.auto_update))
+        self.list.append(getConfigListEntry("     Godzina auto",        config.plugins.poterx.auto_update_time))
 
         # ── Sekcja PODMIANA KANALOW ──────────────────────────────────────────
         self.list.append(getConfigListEntry(
-            " ════════  PODMIANA KANALOW (Bzyk83)  ═══════", ConfigNothing()))
-        self.list.append(getConfigListEntry("    Zrodlo (lista)",      config.plugins.poterx.bzyk_source_bouquet))
-        self.list.append(getConfigListEntry("    Zrodlo (sciezka)",    config.plugins.poterx.bzyk_source_path))
-        self.list.append(getConfigListEntry("    Tryb zapisu",         config.plugins.poterx.bzyk_target_mode))
-        self.list.append(getConfigListEntry("    Tytul nowej listy",   config.plugins.poterx.bzyk_custom_title))
-        self.list.append(getConfigListEntry("    Plik nowej listy",    config.plugins.poterx.bzyk_custom_bouquet))
-        self.list.append(getConfigListEntry("    Wstaw na 1 miejscu",  config.plugins.poterx.bzyk_insert_first))
+            "  ───  PODMIANA KANALOW  (Bzyk83) ────────────────", ConfigNothing()))
+        self.list.append(getConfigListEntry("     Zrodlo (lista)",      config.plugins.poterx.bzyk_source_bouquet))
+        self.list.append(getConfigListEntry("     Zrodlo (sciezka)",    config.plugins.poterx.bzyk_source_path))
+        self.list.append(getConfigListEntry("     Tryb zapisu",         config.plugins.poterx.bzyk_target_mode))
+        self.list.append(getConfigListEntry("     Tytul nowej listy",   config.plugins.poterx.bzyk_custom_title))
+        self.list.append(getConfigListEntry("     Plik nowej listy",    config.plugins.poterx.bzyk_custom_bouquet))
+        self.list.append(getConfigListEntry("     Wstaw na 1 miejscu",  config.plugins.poterx.bzyk_insert_first))
 
         # ── Sekcja DODATKOWA LISTA ───────────────────────────────────────────
         self.list.append(getConfigListEntry(
-            " ════════  DODATKOWA LISTA IPTV  ════════════", ConfigNothing()))
-        self.list.append(getConfigListEntry("    Lista z reszta kanalow", config.plugins.poterx.bzyk_extra_enable))
-        self.list.append(getConfigListEntry("    Tytul listy",          config.plugins.poterx.bzyk_extra_title))
-        self.list.append(getConfigListEntry("    Plik listy",           config.plugins.poterx.bzyk_extra_bouquet))
+            "  ───  DODATKOWA LISTA IPTV ───────────────────────", ConfigNothing()))
+        self.list.append(getConfigListEntry("     Lista z reszta kanalow", config.plugins.poterx.bzyk_extra_enable))
+        self.list.append(getConfigListEntry("     Tytul listy",           config.plugins.poterx.bzyk_extra_title))
+        self.list.append(getConfigListEntry("     Plik listy",            config.plugins.poterx.bzyk_extra_bouquet))
 
         # ── Sekcja MOJA LISTA Z SERWERA ──────────────────────────────────────
         self.list.append(getConfigListEntry(
-            " ════════  MOJA LISTA Z SERWERA  ════════════", ConfigNothing()))
-        self.list.append(getConfigListEntry("    Wstaw na 1 miejscu",  config.plugins.poterx.hotbird_insert_first))
+            "  ───  MOJA LISTA Z SERWERA ───────────────────────", ConfigNothing()))
+        self.list.append(getConfigListEntry("     Wstaw na 1 miejscu",  config.plugins.poterx.hotbird_insert_first))
 
         # ── Sekcja PICONY ────────────────────────────────────────────────────
         self.list.append(getConfigListEntry(
-            " ════════  PICONY  ══════════════════════════", ConfigNothing()))
-        self.list.append(getConfigListEntry("    Zrodlo piconow",      config.plugins.poterx.picon_source))
-        self.list.append(getConfigListEntry("    Rozdzielczosc",       config.plugins.poterx.picon_size))
-        self.list.append(getConfigListEntry("    Katalog docelowy",    config.plugins.poterx.picon_path))
+            "  ───  PICONY ──────────────────────────────────────", ConfigNothing()))
+        self.list.append(getConfigListEntry("     Zrodlo piconow",      config.plugins.poterx.picon_source))
+        self.list.append(getConfigListEntry("     Rozdzielczosc",       config.plugins.poterx.picon_size))
+        self.list.append(getConfigListEntry("     Katalog docelowy",    config.plugins.poterx.picon_path))
 
         ConfigListScreen.__init__(self, self.list, session=self.session)
         self.setTitle("PoterX Downloader v%s" % VERSION)
-        self["header"] = Label("PoterX Downloader")
-        try:
-            self["ver_label"] = Label("v%s" % VERSION)
-        except Exception:
-            pass
-        self["status"] = Label("Inicjalizacja...")
-        self["help"]   = Label("Strzalki = nawigacja   OK = wykonaj / edytuj   0 = Diagnostyka EPG")
+        self["header"]     = Label("PoterX Downloader")
+        self["ver_label"]  = Label("v%s  │  EPG auto co 6h" % VERSION)
+        self["info_label"] = Label("")
+        self["status"]     = Label("Gotowy.")
+        self["help"]       = Label(
+            "↑↓ Nawigacja      OK Wykonaj / Edytuj      EXIT Wyjscie      0 Diagnostyka EPG"
+        )
+        self._update_info_label()
 
-        self["key_red"]    = Button("Wyjscie")
-        self["key_green"]  = Button("Pobierz IPTV")
-        self["key_yellow"] = Button("Picony")
-        self["key_blue"]   = Button("Importuj EPG")
+        self["key_red"]    = Button("EXIT  Wyjscie")
+        self["key_green"]  = Button("↓  Pobierz IPTV")
+        self["key_yellow"] = Button("★  Picony")
+        self["key_blue"]   = Button("↻  Importuj EPG")
 
         self["setupActions"] = ActionMap(
             ["SetupActions", "ColorActions", "NumberActions"], {
@@ -1307,6 +1372,21 @@ class PoterXScreen(ConfigListScreen, Screen):
     def _refresh_key_labels(self):
         # Przyciski sa teraz stale – nie zaleza od konfiguracji
         pass
+
+    def _update_info_label(self):
+        """Odświeża pasek informacyjny: user@host."""
+        try:
+            user = config.plugins.poterx.username.value or "---"
+            host = _sanitize_host(config.plugins.poterx.host.value)
+            # Skróć host do domeny bez protokołu
+            host_short = re.sub(r"^https?://", "", host).rstrip("/")
+            if len(host_short) > 40:
+                host_short = host_short[:37] + "..."
+            self["info_label"].setText(
+                "Uzytkownik:  %s     Host:  %s" % (user, host_short)
+            )
+        except Exception:
+            pass
 
     # Mapa: fragment etykiety → metoda do wywołania po OK
     _ACTION_DISPATCH = [
@@ -1374,6 +1454,7 @@ class PoterXScreen(ConfigListScreen, Screen):
         except Exception:
             pass
         self._on_selection_changed()
+        self._update_info_label()
 
     def _on_selection_changed(self):
         try:
@@ -1426,6 +1507,10 @@ class PoterXScreen(ConfigListScreen, Screen):
             help_txt = "Strzalki = nawigacja   OK = wykonaj / edytuj   0 = Diagnostyka EPG"
 
         self["help"].setText(help_txt)
+
+        # Odswiez info bar gdy user/host mogl sie zmienic
+        if "Uzytkownik" in label or "Haslo" in label or not label:
+            self._update_info_label()
 
     def _refresh_bouquet_choices(self):
         bouquets = _list_tv_bouquet_files()
