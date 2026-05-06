@@ -601,28 +601,31 @@ class EPGAutoRefresh:
                 context = ET.iterparse(xmlf, events=("end",))
                 for _ev, elem in context:
                     if elem.tag != "programme":
-                        elem.clear()
+                        # Czyscimy TYLKO <tv> – NIE czysc <title>/<desc> bo sa dziecmi <programme>!
+                        # (port 1:1 z IPTV_EPG_Manager EPGParser.iter_events)
+                        if elem.tag == "tv":
+                            elem.clear()
                         continue
                     channel_id = elem.get("channel") or ""
                     refs = mapping.get(channel_id)
                     if refs:
                         start = _parse_ts(elem.get("start") or "")
                         stop  = _parse_ts(elem.get("stop") or "")
-                        if start and stop and start <= max_ts and stop >= now_ts:
-                            duration = max(stop - start, 60)
+                        if start > 0 and stop > start and start <= max_ts and stop >= now_ts:
+                            duration = stop - start
                             title = ""
                             desc  = ""
                             for child in elem:
-                                if child.tag == "title" and not title and child.text:
-                                    title = child.text.strip()[:240]
-                                elif child.tag == "desc" and not desc and child.text:
-                                    desc = child.text.strip()[:1024]
+                                if child.tag == "title" and not title:
+                                    title = child.text or ""
+                                elif child.tag == "desc" and not desc:
+                                    desc = child.text or ""
                             if title:
                                 # 6-krotka wymagana przez eEPGCache.importEvents
-                                evt = (start, duration, title, "", desc, 0)
+                                evt = (start, duration, str(title)[:240], "", str(desc)[:1024], 0)
                                 for sref_str in refs:
                                     events_by_ref.setdefault(sref_str, []).append(evt)
-                    elem.clear()
+                    elem.clear()  # czysc <programme> po przetworzeniu
 
             self._pending = events_by_ref
 
@@ -654,11 +657,21 @@ class EPGAutoRefresh:
                 return
             for sref_str, events in events_by_ref.items():
                 try:
-                    # str(sref_str) – wymagane przez eEPGCache.importEvents (port SimpleIPTV_EPG)
+                    # Deduplikacja i sortowanie – port EPGInjector.commit() z IPTV_EPG_Manager
+                    cleaned = []
+                    seen_sigs = set()
+                    for evt in sorted(events, key=lambda e: (e[0], e[1], e[2])):
+                        sig = (evt[0], evt[1], evt[2], evt[4])
+                        if sig in seen_sigs:
+                            continue
+                        seen_sigs.add(sig)
+                        cleaned.append(evt)
+                    if not cleaned:
+                        continue
                     if has_importEvents:
-                        epgcache.importEvents(str(sref_str), events)
+                        epgcache.importEvents(str(sref_str), cleaned)
                     else:
-                        for evt in events:
+                        for evt in cleaned:
                             epgcache.importEvent(str(sref_str), evt)
                 except Exception:
                     pass
@@ -907,184 +920,8 @@ def _epg_scan_iptv_services():
 
 class _EpgAutoMapper(object):
     """
-    Port AutoMapper z SimpleIPTV_EPG/automapper.py (OliOli2013).
+    Port 1:1 AutoMapper z IPTV_EPG_Manager/automapper.py.
     Buduje mapowanie: xml_channel_id → [sref_str, ...]
-    """
-    def __init__(self, status_cb=None):
-        self._status_cb = status_cb
-
-    def _status(self, msg):
-        if self._status_cb:
-            try:
-                self._status_cb(msg)
-            except Exception:
-                pass
-
-    def _group_services(self, services):
-        groups = {}
-        for svc in services:
-            ref        = svc.get("full_ref")
-            candidates = [c for c in (svc.get("candidates") or []) if c]
-            primary    = svc.get("norm") or (candidates[0] if candidates else "")
-            if not primary:
-                continue
-            bucket = groups.setdefault(primary, {
-                "refs":       [],
-                "candidates": set(),
-                "tokens":     set(),
-                "name":       svc.get("name", ""),
-                "primary":    primary,
-            })
-            if ref and ref not in bucket["refs"]:
-                bucket["refs"].append(ref)
-            for c in candidates:
-                bucket["candidates"].add(c)
-            for variant in _epg_name_variants(svc.get("name", "")):
-                compact = variant.replace(" ", "")
-                if compact:
-                    bucket["candidates"].add(compact)
-            for token in _epg_tokenize(svc.get("name", "")):
-                bucket["tokens"].add(token)
-        return groups
-
-    def _build_xml_index(self, xml_path):
-        exact_index = {}
-        token_index = {}
-        entries     = {}
-        opener = gzip.open if str(xml_path).lower().endswith(".gz") else open
-        with opener(xml_path, "rb") as handle:
-            context = ET.iterparse(handle, events=("end",))
-            for _event, elem in context:
-                if elem.tag == "channel":
-                    xml_id = elem.get("id") or ""
-                    names  = [xml_id]
-                    for child in elem:
-                        if child.tag == "display-name" and child.text:
-                            names.append(child.text)
-                    compacts = set()
-                    tokens   = set()
-                    for raw_name in names:
-                        compact = _epg_compact_name(raw_name)
-                        if compact:
-                            compacts.add(compact)
-                            exact_index.setdefault(compact, set()).add(xml_id)
-                        for token in _epg_tokenize(raw_name):
-                            tokens.add(token)
-                            token_index.setdefault(token, set()).add(xml_id)
-                    if xml_id:
-                        entries[xml_id] = {"compacts": compacts, "tokens": tokens}
-                    elem.clear()
-                elif elem.tag == "programme":
-                    break
-        return exact_index, token_index, entries
-
-    def _candidate_xml_ids(self, group, exact_index, token_index, entries):
-        exact_hits = []
-        seen = set()
-        for candidate in sorted(group.get("candidates", set()), key=lambda x: (-len(x), x)):
-            for xml_id in exact_index.get(candidate, set()):
-                if xml_id not in seen:
-                    exact_hits.append(xml_id)
-                    seen.add(xml_id)
-        if exact_hits:
-            return exact_hits[:8]
-        pool = set()
-        for token in sorted(list(group.get("tokens", set())), key=lambda x: (-len(x), x))[:5]:
-            pool.update(token_index.get(token, set()))
-            if len(pool) >= 96:
-                break
-        if len(pool) > 128:
-            prefix   = (group.get("primary") or "")[:3]
-            filtered = [
-                xml_id for xml_id in pool
-                if prefix and any(c.startswith(prefix)
-                                  for c in entries.get(xml_id, {}).get("compacts", set()))
-            ]
-            pool = set(filtered[:128]) if filtered else set(list(pool)[:128])
-        return list(pool)[:128]
-
-    def _score(self, group, entry):
-        group_compacts = [c for c in group.get("candidates", set()) if c]
-        entry_compacts = list(entry.get("compacts", set()))
-        group_tokens   = set(group.get("tokens", set()))
-        entry_tokens   = set(entry.get("tokens", set()))
-        overlap = len(group_tokens & entry_tokens)
-        best    = 0.0
-        for gc in group_compacts[:8]:
-            for xc in entry_compacts[:8]:
-                if gc == xc:
-                    return 1.0
-                if gc.startswith(xc) or xc.startswith(gc):
-                    best = max(best, 0.97)
-                elif gc in xc or xc in gc:
-                    best = max(best, 0.94)
-                else:
-                    best = max(best, difflib.SequenceMatcher(None, gc, xc).ratio())
-        if overlap:
-            coverage = float(overlap) / float(max(len(group_tokens), 1))
-            best = max(best, 0.52 + (0.18 * min(overlap, 3)) + (0.12 * coverage))
-        if group_tokens and entry_tokens:
-            missing = len(group_tokens - entry_tokens)
-            if missing >= 2:
-                best -= 0.08 * missing
-        return max(best, 0.0)
-
-    def _allow_shared_xml(self, existing_group, new_group):
-        left  = existing_group.get("primary", "")
-        right = new_group.get("primary", "")
-        if left == right:
-            return True
-        lt = set(existing_group.get("tokens", set()))
-        rt = set(new_group.get("tokens", set()))
-        if len(lt & rt) >= max(2, min(len(lt), len(rt))):
-            return True
-        return difflib.SequenceMatcher(None, left, right).ratio() >= 0.96
-
-    def generate_mapping(self, services, xml_path):
-        groups = self._group_services(services)
-        self._status("AutoMapper: indeksowanie XMLTV...")
-        exact_index, token_index, entries = self._build_xml_index(xml_path)
-        mapping   = {}
-        xml_usage = {}
-        total     = len(groups)
-        matched   = 0
-        for idx, (group_key, group) in enumerate(sorted(groups.items())):
-            best_options = []
-            for xml_id in self._candidate_xml_ids(group, exact_index, token_index, entries):
-                entry = entries.get(xml_id)
-                if not entry:
-                    continue
-                score = self._score(group, entry)
-                if score >= 0.90:
-                    best_options.append((score, xml_id))
-            best_options.sort(key=lambda x: (-x[0], x[1]))
-            chosen_xml = None
-            for score, xml_id in best_options:
-                owner = xml_usage.get(xml_id)
-                if owner and not self._allow_shared_xml(owner, group):
-                    continue
-                overlap = len(set(group.get("tokens", set()))
-                              & set(entries.get(xml_id, {}).get("tokens", set())))
-                if score < 0.97 and overlap == 0:
-                    continue
-                chosen_xml = xml_id
-                xml_usage.setdefault(xml_id, group)
-                break
-            if chosen_xml:
-                refs = mapping.setdefault(chosen_xml, [])
-                for sref in group.get("refs", []):
-                    if sref not in refs:
-                        refs.append(sref)
-                matched += 1
-            if (idx + 1) % 50 == 0 or (idx + 1) == total:
-                self._status("AutoMapper: %d/%d grup..." % (idx + 1, total))
-        return mapping, {"groups": total, "matched_groups": matched, "xml_ids": len(mapping)}
-
-
-class _EpgAutoMapper(object):
-    """
-    Fuzzy name-based mapping: kanały Enigma2 ↔ channel-id z XMLTV.
-    Port automapper.py z IPTV_EPG_Manager.
     """
     def __init__(self, status_cb=None):
         self._status_cb = status_cb
@@ -2057,7 +1894,10 @@ class PoterXScreen(ConfigListScreen, Screen):
                 context = ET.iterparse(xmlf, events=("end",))
                 for _ev, elem in context:
                     if elem.tag != "programme":
-                        elem.clear()
+                        # Czyscimy TYLKO <tv> – NIE czysc <title>/<desc> bo sa dziecmi <programme>!
+                        # (port 1:1 z IPTV_EPG_Manager EPGParser.iter_events)
+                        if elem.tag == "tv":
+                            elem.clear()
                         continue
 
                     channel_id = elem.get("channel") or ""
@@ -2065,18 +1905,18 @@ class PoterXScreen(ConfigListScreen, Screen):
                     if refs:
                         start = _parse_xmltv_ts(elem.get("start") or "")
                         stop  = _parse_xmltv_ts(elem.get("stop") or "")
-                        if start and stop and start <= max_ts and stop >= now_ts:
-                            duration = max(stop - start, 60)
+                        if start > 0 and stop > start and start <= max_ts and stop >= now_ts:
+                            duration = stop - start
                             title = ""
                             desc  = ""
                             for child in elem:
-                                if child.tag == "title" and not title and child.text:
-                                    title = child.text.strip()[:240]
-                                elif child.tag == "desc" and not desc and child.text:
-                                    desc = child.text.strip()[:1024]
+                                if child.tag == "title" and not title:
+                                    title = child.text or ""
+                                elif child.tag == "desc" and not desc:
+                                    desc = child.text or ""
                             if title:
                                 # 6-krotka wymagana przez eEPGCache.importEvents
-                                evt = (start, duration, title, "", desc, 0)
+                                evt = (start, duration, str(title)[:240], "", str(desc)[:1024], 0)
                                 for sref_str in refs:
                                     events_by_ref.setdefault(sref_str, []).append(evt)
                                 total_parsed += 1
@@ -2088,7 +1928,7 @@ class PoterXScreen(ConfigListScreen, Screen):
                                 prog_count, total_parsed
                             )
                         )
-                    elem.clear()
+                    elem.clear()  # czysc <programme> po przetworzeniu
 
             try:
                 os.remove(tmp_path)
@@ -2173,13 +2013,24 @@ class PoterXScreen(ConfigListScreen, Screen):
             injected = 0
             for sref_str, events in events_by_ref.items():
                 try:
-                    # str(sref_str) – wymagane przez eEPGCache.importEvents (port SimpleIPTV_EPG)
+                    # Deduplikacja i sortowanie – port EPGInjector.commit() z IPTV_EPG_Manager
+                    cleaned = []
+                    seen_sigs = set()
+                    for evt in sorted(events, key=lambda e: (e[0], e[1], e[2])):
+                        sig = (evt[0], evt[1], evt[2], evt[4])
+                        if sig in seen_sigs:
+                            continue
+                        seen_sigs.add(sig)
+                        cleaned.append(evt)
+                    if not cleaned:
+                        continue
+                    # str(sref_str) – wymagane przez eEPGCache.importEvents
                     if has_importEvents:
-                        epgcache.importEvents(str(sref_str), events)
+                        epgcache.importEvents(str(sref_str), cleaned)
                     else:
-                        for evt in events:
+                        for evt in cleaned:
                             epgcache.importEvent(str(sref_str), evt)
-                    injected += len(events)
+                    injected += len(cleaned)
                 except Exception:
                     pass
 
