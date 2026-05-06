@@ -1647,18 +1647,20 @@ class PoterXScreen(ConfigListScreen, Screen):
 
     def _epg_import_thread(self, host, user, password):
         """
-        Background worker – AutoMapper approach (port z IPTV_EPG_Manager):
+        Background worker – podejście hybrydowe:
           1. Skanuj bouquety Enigma2 -> lista serwisów IPTV
-          2. Pobierz XMLTV z panelu (z postępem MB)
-          3. AutoMapper: indeksuj <channel> w XMLTV, fuzzy-matchuj do serwisów
-          4. iterparse <programme> -> zbierz eventy wg zmapowanych ref
-        Żadnych wywołań Enigma2 API – tylko czysty Python.
+          2. Pobierz get_live_streams z API -> epg_channel_id dla każdego kanału
+             (epg_channel_id to DOKŁADNY klucz channel w XMLTV <programme channel="...">)
+          3. Dopasuj nazwy strumieni API do nazw kanałów w bouquetach (fuzzy + AutoMapper)
+             -> zbuduj {epg_channel_id: [sref, ...]}
+          4. Pobierz XMLTV z postępem MB
+          5. iterparse <programme channel="..."> -> zbierz eventy
+        Żadnych wywołań Enigma2 API tu – wszystko w wątku tła.
         """
         import time as _time
         import datetime as _datetime
 
         def _parse_xmltv_ts(s):
-            """Parsuje timestamp XMLTV z obsługą offsetu strefy czasowej."""
             s = (s or "").strip()
             m = re.match(r"^(\d{14})(?:\s*([+-]\d{4}|Z))?", s)
             if not m:
@@ -1671,10 +1673,9 @@ class PoterXScreen(ConfigListScreen, Screen):
             if offset and offset != "Z":
                 try:
                     sign  = 1 if offset[0] == "+" else -1
-                    hours = int(offset[1:3])
+                    hrs   = int(offset[1:3])
                     mins  = int(offset[3:5])
-                    delta = _datetime.timedelta(hours=hours, minutes=mins)
-                    dt    = dt - sign * delta
+                    dt    = dt - sign * _datetime.timedelta(hours=hrs, minutes=mins)
                     return int((dt - _datetime.datetime(1970, 1, 1)).total_seconds())
                 except Exception:
                     pass
@@ -1688,20 +1689,113 @@ class PoterXScreen(ConfigListScreen, Screen):
             except Exception:
                 return 0
 
+        tmp_path = "/tmp/poterx_xmltv_tmp.xml"
         try:
-            # ── Krok 1: Skanowanie bouquetów Enigma2 ─────────────────────────
+            # ── Krok 1: Skanowanie bouquetów ─────────────────────────────────
             self._epg_import_status = "Skanowanie bouquetow Enigma2..."
-            services = _epg_scan_from_bouquet_files()
-            if not services:
+            bouquet_services = _epg_scan_from_bouquet_files()
+            if not bouquet_services:
                 self._epg_import_result = (
                     False,
                     "Nie znaleziono kanalow IPTV w bouquetach Enigma2.\n"
                     "Najpierw pobierz kanaly IPTV (zielony przycisk)."
                 )
                 return
-            self._epg_import_status = "Znaleziono %d kanalow IPTV w bouquetach." % len(services)
+            self._epg_import_status = "Bouquety: %d kanalow IPTV." % len(bouquet_services)
 
-            # ── Krok 2: Pobieranie XMLTV z panelu ────────────────────────────
+            # ── Krok 2: API – pobierz epg_channel_id dla każdego strumienia ──
+            self._epg_import_status = "Pobieranie listy kanalow z API..."
+            streams_url = (
+                "%s/player_api.php?username=%s&password=%s&action=get_live_streams"
+                % (host, user, password)
+            )
+            req = Request(streams_url)
+            req.add_header("User-Agent", "Enigma2-PoterX")
+            raw     = to_str(urlopen(req, timeout=60).read())
+            streams = json.loads(raw)
+
+            if not isinstance(streams, list):
+                streams = []
+
+            # Zbuduj indeks wariantów nazw strumieni → epg_channel_id
+            # epg_channel_id z API to DOKŁADNY klucz channel w XMLTV
+            variant_to_epgid = {}   # compact_variant → epg_channel_id
+            for s in streams:
+                epg_id = (
+                    str(s.get("epg_channel_id") or "").strip()
+                    or str(s.get("tvg_id") or "").strip()
+                )
+                if not epg_id:
+                    continue
+                name = str(s.get("name") or "").strip()
+                if not name:
+                    continue
+                for variant in _epg_name_variants(name):
+                    if variant and variant not in variant_to_epgid:
+                        variant_to_epgid[variant] = epg_id
+
+            self._epg_import_status = (
+                "API: %d strumieni, %d wariantow nazw." % (len(streams), len(variant_to_epgid))
+            )
+
+            # ── Krok 3: Dopasuj bouquet → epg_channel_id ─────────────────────
+            self._epg_import_status = "Dopasowywanie kanalow..."
+            epgid_to_refs = {}   # epg_channel_id → [sref, ...]
+
+            # Przejście 1: dokładne dopasowanie po wariantach nazw
+            unmatched = []
+            for svc in bouquet_services:
+                sref      = svc.get("full_ref", "")
+                matched   = False
+                for candidate in (svc.get("candidates") or []):
+                    epg_id = variant_to_epgid.get(candidate)
+                    if epg_id:
+                        refs = epgid_to_refs.setdefault(epg_id, [])
+                        if sref not in refs:
+                            refs.append(sref)
+                        matched = True
+                        break
+                if not matched:
+                    unmatched.append(svc)
+
+            exact_matched = len(epgid_to_refs)
+            self._epg_import_status = (
+                "Dokladne dopasowanie: %d/%d kanalow." % (exact_matched, len(bouquet_services))
+            )
+
+            # Przejście 2: fuzzy fallback dla niedopasowanych (difflib)
+            if unmatched and variant_to_epgid:
+                all_variants = list(variant_to_epgid.keys())
+                for svc in unmatched:
+                    sref    = svc.get("full_ref", "")
+                    primary = svc.get("norm", "")
+                    if not primary or len(primary) < 3:
+                        continue
+                    best_score  = 0.0
+                    best_epg_id = None
+                    # Szukaj wśród wariantów o podobnej długości
+                    for v in all_variants:
+                        if abs(len(v) - len(primary)) > max(4, len(primary) // 2):
+                            continue
+                        score = difflib.SequenceMatcher(None, primary, v).ratio()
+                        if score > best_score:
+                            best_score  = score
+                            best_epg_id = variant_to_epgid[v]
+                    if best_epg_id and best_score >= 0.88:
+                        refs = epgid_to_refs.setdefault(best_epg_id, [])
+                        if sref not in refs:
+                            refs.append(sref)
+
+            total_matched = len(epgid_to_refs)
+            self._epg_channel_count = total_matched
+
+            # Fallback: jeśli API nie dostarczyło epg_channel_id dla żadnego
+            # kanału, użyj AutoMappera (dopasowanie po XMLTV <channel>)
+            use_automapper_fallback = (total_matched == 0)
+            am_stats = {"groups": len(bouquet_services), "matched_groups": total_matched,
+                        "xml_ids": total_matched, "method": "api"}
+
+            # ── Krok 4: Pobieranie XMLTV z postępem MB ───────────────────────
             xmltv_url = "%s/xmltv.php?username=%s&password=%s" % (host, user, password)
             req = Request(xmltv_url)
             req.add_header("User-Agent", "Enigma2-PoterX")
@@ -1712,9 +1806,7 @@ class PoterXScreen(ConfigListScreen, Screen):
                 content_length = int(response.headers.get("Content-Length") or 0)
             except Exception:
                 pass
-            total_mb  = content_length / (1024.0 * 1024.0) if content_length > 0 else 0
-
-            tmp_path   = "/tmp/poterx_xmltv_tmp.xml"
+            total_mb   = content_length / (1024.0 * 1024.0) if content_length > 0 else 0
             downloaded = 0
             last_mb    = -1
 
@@ -1731,43 +1823,62 @@ class PoterXScreen(ConfigListScreen, Screen):
                         if content_length > 0:
                             pct = int(downloaded * 100 / content_length)
                             self._epg_import_status = (
-                                "Pobieranie XMLTV: %.1f / %.1f MB (%d%%)" % (current_mb, total_mb, pct)
+                                "Pobieranie XMLTV: %.1f / %.1f MB (%d%%)"
+                                % (current_mb, total_mb, pct)
                             )
                         else:
-                            self._epg_import_status = "Pobieranie XMLTV: %.1f MB..." % current_mb
+                            self._epg_import_status = (
+                                "Pobieranie XMLTV: %.1f MB..." % current_mb
+                            )
 
-            self._epg_import_status = "Pobrano %.1f MB. AutoMapper..." % (downloaded / (1024.0 * 1024.0))
+            dl_mb = downloaded / (1024.0 * 1024.0)
+            self._epg_import_status = "Pobrano %.1f MB." % dl_mb
 
-            # ── Krok 3: AutoMapper – fuzzy matching ──────────────────────────
-            def _am_status(msg):
-                self._epg_import_status = msg
+            # ── Fallback: AutoMapper na XMLTV <channel> ───────────────────────
+            if use_automapper_fallback:
+                self._epg_import_status = "Brak epg_channel_id w API – AutoMapper..."
+                def _am_status(msg):
+                    self._epg_import_status = msg
+                mapper = _EpgAutoMapper(status_cb=_am_status)
+                am_mapping, am_stats = mapper.generate_mapping(bouquet_services, tmp_path)
+                am_stats["method"] = "automapper"
+                if am_mapping:
+                    epgid_to_refs  = am_mapping
+                    total_matched  = len(am_mapping)
+                    self._epg_channel_count = total_matched
+                else:
+                    try:
+                        os.remove(tmp_path)
+                    except Exception:
+                        pass
+                    self._epg_import_result = (
+                        False,
+                        "Brak epg_channel_id w API i AutoMapper nie znalazl dopasowania.\n"
+                        "Sprawdz czy kanaly IPTV sa w bouquetach Enigma2."
+                    )
+                    return
 
-            mapper = _EpgAutoMapper(status_cb=_am_status)
-            mapping, stats = mapper.generate_mapping(services, tmp_path)
-            # mapping: {xml_channel_id: [sref_str, ...]}
-
-            if not mapping:
+            if not epgid_to_refs:
                 try:
                     os.remove(tmp_path)
                 except Exception:
                     pass
                 self._epg_import_result = (
                     False,
-                    "AutoMapper nie zmapował żadnego kanału.\n"
-                    "Sprawdź czy kanały IPTV są w bouquetach Enigma2."
+                    "Nie zmapowano zadnego kanalu EPG.\n"
+                    "API: %d strumieni   bouquet: %d kanalow\n"
+                    "Sprawdz dane logowania i czy kanaly IPTV sa pobrane."
+                    % (len(streams), len(bouquet_services))
                 )
                 return
 
-            self._epg_channel_count = stats.get("matched_groups", 0)
             self._epg_import_status = (
-                "Zmapowano %d/%d grup → %d xml_ids. Parsowanie eventow..." % (
-                    stats["matched_groups"], stats["groups"], stats["xml_ids"]
-                )
+                "Zmapowano %d kanalow. Parsowanie eventow..." % total_matched
             )
 
-            # ── Krok 4: iterparse <programme> → zbierz eventy ────────────────
+            # ── Krok 5: iterparse <programme> → zbierz eventy ────────────────
             now_ts = int(_time.time())
-            max_ts = now_ts + 3 * 86400   # max 3 dni wprzód
+            max_ts = now_ts + 4 * 86400   # 4 dni wprzód
 
             events_by_ref = {}
             total_parsed  = 0
@@ -1783,7 +1894,7 @@ class PoterXScreen(ConfigListScreen, Screen):
                         continue
 
                     channel_id = elem.get("channel") or ""
-                    refs = mapping.get(channel_id)
+                    refs = epgid_to_refs.get(channel_id)
                     if refs:
                         start = _parse_xmltv_ts(elem.get("start") or "")
                         stop  = _parse_xmltv_ts(elem.get("stop") or "")
@@ -1805,7 +1916,7 @@ class PoterXScreen(ConfigListScreen, Screen):
                     prog_count += 1
                     if prog_count % 5000 == 0:
                         self._epg_import_status = (
-                            "Parsowanie eventow: %d sparsowanych, %d pasujacych..." % (
+                            "Parsowanie: %d prog., %d eventow pasuje..." % (
                                 prog_count, total_parsed
                             )
                         )
@@ -1817,16 +1928,16 @@ class PoterXScreen(ConfigListScreen, Screen):
                 pass
 
             self._epg_import_status = (
-                "Przygotowano %d eventow dla %d referencji. Wstrzykiwanie..." % (
+                "Przygotowano %d eventow dla %d ref. Wstrzykiwanie..." % (
                     total_parsed, len(events_by_ref)
                 )
             )
             self._epg_pending_events = events_by_ref
-            self._epg_import_result  = (True, total_parsed, stats)
+            self._epg_import_result  = (True, total_parsed, am_stats)
 
         except Exception as ex:
             try:
-                os.remove("/tmp/poterx_xmltv_tmp.xml")
+                os.remove(tmp_path)
             except Exception:
                 pass
             self._epg_import_result = (False, "Blad importu EPG: %s" % str(ex))
@@ -1909,21 +2020,20 @@ class PoterXScreen(ConfigListScreen, Screen):
             except Exception:
                 pass
 
+            method = am_stats.get("method", "api")
+            method_label = "API epg_channel_id" if method == "api" else "AutoMapper (fallback)"
             msg = (
                 "Import EPG zakonczony!\n\n"
                 "Wstrzyknietych eventow:  %d\n"
-                "Referencji serwisow:     %d\n\n"
-                "AutoMapper:\n"
-                "  Grup kanalow:    %d\n"
-                "  Zmapowanych:     %d\n"
-                "  XML channel ID:  %d\n\n"
+                "Referencji serwisow:     %d\n"
+                "Zmapowanych kanalow:     %d\n\n"
+                "Metoda mapowania: %s\n\n"
                 "EPG bedzie widoczne w przewodniku."
             ) % (
                 injected,
                 len(events_by_ref),
-                am_stats.get("groups", 0),
-                am_stats.get("matched_groups", 0),
-                am_stats.get("xml_ids", 0),
+                am_stats.get("matched_groups", am_stats.get("xml_ids", 0)),
+                method_label,
             )
 
             self["status"].setText("EPG OK: %d eventow." % injected)
